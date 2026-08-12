@@ -5,3 +5,18 @@ todoscope plans/
 .env
 .env.*
 !.env.example
+
+# Agent local state (never committed)
+docs/memory/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Builds
+dist/
+build/
