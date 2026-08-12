@@ -24,12 +24,14 @@ from todoscope.discovery import (
     load_gitignore_spec,
 )
 from todoscope.keys import env_file_is_ignored, load_keys
-from todoscope.openai_client import AiRequestError, analyze
+from todoscope.openai_client import AiOutcomeKind, run_ai_analysis
 from todoscope.report import (
     AI_SKIPPED_NO_AI_FLAG,
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
+    AI_SKIPPED_NONINTERACTIVE,
     AI_SKIPPED_REQUEST_FAILED,
+    AI_SKIPPED_SECONDARY_FAILED,
     AI_SKIPPED_UNSAFE_ENV,
     payload_too_large_message,
     quiet_report,
@@ -37,6 +39,7 @@ from todoscope.report import (
     verbose_report,
 )
 from todoscope.scan import scan
+from todoscope.status import StatusContext
 
 PROG = "todoscope"
 DESCRIPTION = "Find maintenance comments in source code."
@@ -95,6 +98,14 @@ def _prompt_override(relative: str, source: str, ai_enabled: bool) -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
+def _prompt_secondary() -> bool:
+    print()
+    print("The primary AI request failed.")
+    print()
+    answer = input("Try the configured secondary API key? [y/N] ")
+    return answer.strip().lower() in {"y", "yes"}
+
+
 def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
     if reason is AiSkipReason.DISABLED:
         return AI_SKIPPED_NO_AI_FLAG
@@ -106,9 +117,15 @@ def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
         return payload_too_large_message(config)
     if reason is AiSkipReason.NO_KEY:
         return AI_SKIPPED_NO_KEY
-    if reason is AiSkipReason.REQUEST_FAILED:
-        return AI_SKIPPED_REQUEST_FAILED
     return None
+
+
+def _outcome_skip_line(kind: AiOutcomeKind) -> str:
+    if kind is AiOutcomeKind.NONINTERACTIVE:
+        return AI_SKIPPED_NONINTERACTIVE
+    if kind is AiOutcomeKind.SECONDARY_FAILED:
+        return AI_SKIPPED_SECONDARY_FAILED
+    return AI_SKIPPED_REQUEST_FAILED
 
 
 def main(
@@ -116,6 +133,8 @@ def main(
     *,
     interactive: bool | None = None,
     confirm=None,
+    confirm_secondary=None,
+    status=None,
 ) -> int:
     """Parse arguments and return a numeric exit code."""
     parser = build_parser()
@@ -134,11 +153,11 @@ def main(
         return 3
 
     spec = load_gitignore_spec(root)
+    if interactive is None:
+        interactive = _is_interactive()
     ignored = check_ignored(target, root, config, spec=spec)
     override = None
     if ignored is not None:
-        if interactive is None:
-            interactive = _is_interactive()
         if not interactive:
             print(
                 f"Error: '{ignored.relative}' {_rule_description(ignored.source)} "
@@ -179,14 +198,24 @@ def main(
             )
 
     ai_result = None
+    ai_failure_line: str | None = None
     if eligibility.reason is AiSkipReason.ELIGIBLE:
-        try:
-            ai_result = analyze(items, config.model, keys.primary)
-        except AiRequestError:
-            eligibility = AiEligibility(
-                reason=AiSkipReason.REQUEST_FAILED,
-                payload_characters=ai_payload_chars or 0,
-            )
+        if status is None:
+            status = StatusContext
+        if confirm_secondary is None:
+            confirm_secondary = _prompt_secondary
+        outcome = run_ai_analysis(
+            items,
+            config.model,
+            keys,
+            interactive=interactive,
+            confirm_secondary=confirm_secondary,
+            status=status,
+        )
+        if outcome.kind is AiOutcomeKind.SUCCESS:
+            ai_result = outcome.result
+        else:
+            ai_failure_line = _outcome_skip_line(outcome.kind)
 
     if args.verbose:
         gitignore = root / ".gitignore"
@@ -208,12 +237,13 @@ def main(
     if args.quiet:
         report = quiet_report(findings)
     else:
+        skip_line = ai_failure_line or _ai_skip_line(eligibility.reason, config)
         report = standard_report(
             findings,
             stats.scanned,
             args.path,
             config,
-            _ai_skip_line(eligibility.reason, config),
+            skip_line,
             ai_result,
         )
     print(report)

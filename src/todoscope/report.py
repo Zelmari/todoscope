@@ -17,6 +17,11 @@ AI_SKIPPED_UNSAFE_ENV = (
     "is not ignored by .gitignore."
 )
 AI_SKIPPED_REQUEST_FAILED = "AI analysis skipped: the AI request failed."
+AI_SKIPPED_NONINTERACTIVE = (
+    "AI analysis skipped: the AI request failed. Secondary-key confirmation "
+    "was skipped in non-interactive mode."
+)
+AI_SKIPPED_SECONDARY_FAILED = "AI analysis skipped: the secondary AI request failed."
 
 DISCLAIMER_LINES = (
     "Priorities are estimated from comment text only.",

@@ -57,7 +57,6 @@ class AiSkipReason(StrEnum):
     NO_MODEL = "no-model"
     UNSAFE_ENV = "unsafe-env"
     PAYLOAD_TOO_LARGE = "payload-too-large"
-    REQUEST_FAILED = "request-failed"
     ELIGIBLE = "eligible"
 
 

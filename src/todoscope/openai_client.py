@@ -1,14 +1,16 @@
-"""OpenAI request layer (MS-8): one constrained request, validated response.
+"""OpenAI request layer (MS-8/9): one constrained request, validated response.
 
 Kept strictly separate from scanning, parsing, configuration, and output.
 No retries are performed: the SDK client is created with ``max_retries=0``
-and a fixed timeout applies to the single request (Overarching 25).
+and a fixed timeout applies to every request (Overarching 25). The optional
+secondary-key retry requires interactive confirmation and the same model.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from openai import OpenAI, OpenAIError
@@ -19,6 +21,7 @@ from todoscope.ai import (
     ResponseValidationError,
     validate_response,
 )
+from todoscope.keys import KeyInfo
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 
@@ -112,3 +115,64 @@ def analyze(
         return validate_response(data, [item["id"] for item in items])
     except ResponseValidationError as exc:
         raise AiRequestError(f"the AI response was invalid: {exc}") from exc
+
+
+class AiOutcomeKind(StrEnum):
+    SUCCESS = "success"
+    PRIMARY_FAILED = "primary-failed"
+    NONINTERACTIVE = "noninteractive"
+    SECONDARY_FAILED = "secondary-failed"
+
+
+@dataclass(frozen=True, slots=True)
+class AiOutcome:
+    kind: AiOutcomeKind
+    result: AnalysisResult | None = None
+
+
+def run_ai_analysis(
+    items: list[dict[str, Any]],
+    model: str,
+    keys: KeyInfo,
+    *,
+    interactive: bool,
+    confirm_secondary=None,
+    status=None,
+) -> AiOutcome:
+    """Primary request; confirmed secondary retry with the SAME model.
+
+    The secondary key is never used silently: it requires a configured key,
+    an interactive terminal, and an explicit ``y`` answer. There is exactly
+    one retry, and only after the primary request failed.
+    """
+    if status is not None:
+        with status():
+            try:
+                result = analyze(items, model, keys.primary)
+                return AiOutcome(AiOutcomeKind.SUCCESS, result)
+            except AiRequestError:
+                pass
+    else:
+        try:
+            return AiOutcome(AiOutcomeKind.SUCCESS, analyze(items, model, keys.primary))
+        except AiRequestError:
+            pass
+
+    if keys.secondary is None:
+        return AiOutcome(AiOutcomeKind.PRIMARY_FAILED)
+    if not interactive:
+        return AiOutcome(AiOutcomeKind.NONINTERACTIVE)
+    if confirm_secondary is None or not confirm_secondary():
+        return AiOutcome(AiOutcomeKind.PRIMARY_FAILED)
+
+    if status is not None:
+        with status():
+            try:
+                result = analyze(items, model, keys.secondary)
+                return AiOutcome(AiOutcomeKind.SUCCESS, result)
+            except AiRequestError:
+                return AiOutcome(AiOutcomeKind.SECONDARY_FAILED)
+    try:
+        return AiOutcome(AiOutcomeKind.SUCCESS, analyze(items, model, keys.secondary))
+    except AiRequestError:
+        return AiOutcome(AiOutcomeKind.SECONDARY_FAILED)

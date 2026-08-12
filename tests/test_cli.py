@@ -246,7 +246,7 @@ def test_shell_key_with_ignored_env_file_is_eligible(
             overview="Summary.",
         )
 
-    monkeypatch.setattr("todoscope.cli.analyze", fake_analyze)
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
     result = main([str(tmp_path)])
     captured = capsys.readouterr()
     assert result == 0
@@ -289,7 +289,7 @@ def test_ai_success_merges_into_report(
             overview="One maintenance task.",
         )
 
-    monkeypatch.setattr("todoscope.cli.analyze", fake_analyze)
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
     result = main([str(tmp_path)])
     captured = capsys.readouterr()
     assert result == 0
@@ -315,7 +315,7 @@ def test_ai_failure_keeps_local_report(
     def failing_analyze(items, model, api_key, **kwargs):
         raise AiRequestError("boom")
 
-    monkeypatch.setattr("todoscope.cli.analyze", failing_analyze)
+    monkeypatch.setattr("todoscope.openai_client.analyze", failing_analyze)
     result = main([str(tmp_path)])
     captured = capsys.readouterr()
     assert result == 0
@@ -324,3 +324,127 @@ def test_ai_failure_keeps_local_report(
     assert "Overall AI summary" not in captured.out
     assert "sk-shell-secret" not in captured.out
     assert "boom" not in captured.out
+
+
+def test_confirmed_secondary_retry_merges_results(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.ai import AnalysisItem, AnalysisResult
+    from todoscope.openai_client import AiRequestError
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-primary")
+    monkeypatch.setenv("TODOSCOPE_SECONDARY_API_KEY", "sk-secondary")
+    calls: list[tuple[str, str]] = []
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        calls.append((model, api_key))
+        if api_key == "sk-primary":
+            raise AiRequestError("primary down")
+        return AnalysisResult(
+            items=(
+                AnalysisItem(id=1, interpretation="Via secondary.", priority="High"),
+            ),
+            overview="Summary from secondary.",
+        )
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
+    result = main(
+        [str(tmp_path)],
+        interactive=True,
+        confirm_secondary=lambda: True,
+        status=None,
+    )
+    captured = capsys.readouterr()
+    assert result == 0
+    assert calls == [("m", "sk-primary"), ("m", "sk-secondary")]
+    assert "AI interpretation: Via secondary." in captured.out
+    assert "Summary from secondary." in captured.out
+    assert "AI analysis skipped" not in captured.out
+
+
+def test_declined_secondary_keeps_local_report(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.openai_client import AiRequestError
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-primary")
+    monkeypatch.setenv("TODOSCOPE_SECONDARY_API_KEY", "sk-secondary")
+    calls: list[str] = []
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        calls.append(api_key)
+        raise AiRequestError("down")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
+    result = main(
+        [str(tmp_path)],
+        interactive=True,
+        confirm_secondary=lambda: False,
+        status=None,
+    )
+    captured = capsys.readouterr()
+    assert result == 0
+    assert calls == ["sk-primary"]
+    assert "TODO: fix the thing" in captured.out
+    assert "AI analysis skipped: the AI request failed." in captured.out
+
+
+def test_non_interactive_secondary_explanation(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.openai_client import AiRequestError
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-primary")
+    monkeypatch.setenv("TODOSCOPE_SECONDARY_API_KEY", "sk-secondary")
+    calls: list[str] = []
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        calls.append(api_key)
+        raise AiRequestError("down")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
+    result = main([str(tmp_path)], interactive=False, status=None)
+    captured = capsys.readouterr()
+    assert result == 0
+    assert calls == ["sk-primary"]
+    assert "TODO: fix the thing" in captured.out
+    assert (
+        "Secondary-key confirmation was skipped in non-interactive mode."
+        in captured.out
+    )
+
+
+def test_secondary_failure_keeps_local_report(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.openai_client import AiRequestError
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-primary")
+    monkeypatch.setenv("TODOSCOPE_SECONDARY_API_KEY", "sk-secondary")
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        raise AiRequestError("down")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
+    result = main(
+        [str(tmp_path)],
+        interactive=True,
+        confirm_secondary=lambda: True,
+        status=None,
+    )
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: fix the thing" in captured.out
+    assert "AI analysis skipped: the secondary AI request failed." in captured.out
