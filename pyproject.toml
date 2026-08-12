@@ -7,7 +7,9 @@ authors = [
     { name = "Zelmari", email = "240836003+Zelmari@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "tree-sitter-language-pack>=1.14.3",
+]
 
 [project.scripts]
 todoscope = "todoscope.cli:entrypoint"
