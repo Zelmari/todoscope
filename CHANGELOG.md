@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.1.0 (unreleased — development under the working name "todoscope")
+## 0.1.0 (2026-08-13)
+
+First public release. Published on PyPI as `todoscope`.
 
 ### Added
 
