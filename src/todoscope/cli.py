@@ -8,6 +8,14 @@ from importlib.metadata import version
 from pathlib import Path
 
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
+from todoscope.discovery import (
+    GITIGNORE_SOURCE,
+    build_override,
+    check_ignored,
+    discover_files,
+    load_gitignore_spec,
+    relative_posix,
+)
 
 PROG = "todoscope"
 DESCRIPTION = "Find maintenance comments in source code."
@@ -49,7 +57,32 @@ def _describe(config: Config) -> None:
     print(f"  max_ai_characters: {limit}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def _rule_description(source: str) -> str:
+    if source == GITIGNORE_SOURCE:
+        return "is ignored by .gitignore."
+    return "is excluded by .todoscope.json."
+
+
+def _is_interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _prompt_override(relative: str, source: str, ai_enabled: bool) -> bool:
+    print()
+    print(f"'{relative}' {_rule_description(source)}")
+    if ai_enabled:
+        print("Extracted comments may be sent to OpenAI.")
+    print()
+    answer = input("Scan it anyway? [y/N] ")
+    return answer.strip().lower() in {"y", "yes"}
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    interactive: bool | None = None,
+    confirm=None,
+) -> int:
     """Parse arguments and return a numeric exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -66,9 +99,45 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 3
 
+    spec = load_gitignore_spec(root)
+    ignored = check_ignored(target, root, config, spec=spec)
+    override = None
+    if ignored is not None:
+        if interactive is None:
+            interactive = _is_interactive()
+        if not interactive:
+            print(
+                f"Error: '{ignored.relative}' {_rule_description(ignored.source)} "
+                "Cannot scan it without confirmation in non-interactive mode.",
+                file=sys.stderr,
+            )
+            return 2
+        if confirm is None:
+            confirm = _prompt_override
+        if not confirm(ignored.relative, ignored.source, ignored.ai_enabled):
+            return 0
+        override = build_override(target, root, config, spec=spec)
+
+    result = discover_files(target, root, config, spec=spec, override=override)
+
     print(f"Target: {args.path}")
     print(f"Project root: {root}")
     _describe(config)
+    print()
+    if result.files:
+        print(f"Files to scan ({result.stats.scanned}):")
+        for path in result.files:
+            print(f"  {relative_posix(path, root)}")
+    else:
+        print("Files to scan (0)")
+    stats = result.stats
+    skipped = (
+        f"{stats.ignored_by_gitignore} ignored by .gitignore, "
+        f"{stats.ignored_by_config} excluded by configuration, "
+        f"{stats.unsupported} unsupported, {stats.unreadable} unreadable, "
+        f"{stats.symlinks} symlinks"
+    )
+    print(f"Skipped: {skipped}")
     return 0
 
 
