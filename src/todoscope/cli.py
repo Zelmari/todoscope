@@ -8,6 +8,14 @@ import time
 from importlib.metadata import version
 from pathlib import Path
 
+from todoscope.ai import (
+    AiEligibility,
+    AiSkipReason,
+    ai_eligibility,
+    build_ai_items,
+    effective_limit,
+    payload_characters,
+)
 from todoscope.config import ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
@@ -15,10 +23,13 @@ from todoscope.discovery import (
     check_ignored,
     load_gitignore_spec,
 )
+from todoscope.keys import env_file_is_ignored, load_keys
 from todoscope.report import (
     AI_SKIPPED_NO_AI_FLAG,
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
+    AI_SKIPPED_UNSAFE_ENV,
+    payload_too_large_message,
     quiet_report,
     standard_report,
     verbose_report,
@@ -82,12 +93,18 @@ def _prompt_override(relative: str, source: str, ai_enabled: bool) -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
-def _ai_skip_line(config, no_ai: bool) -> str:
-    if no_ai:
+def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
+    if reason is AiSkipReason.DISABLED:
         return AI_SKIPPED_NO_AI_FLAG
-    if config.model is None:
+    if reason is AiSkipReason.NO_MODEL:
         return AI_SKIPPED_NO_MODEL
-    return AI_SKIPPED_NO_KEY
+    if reason is AiSkipReason.UNSAFE_ENV:
+        return AI_SKIPPED_UNSAFE_ENV
+    if reason is AiSkipReason.PAYLOAD_TOO_LARGE:
+        return payload_too_large_message(config)
+    if reason is AiSkipReason.NO_KEY:
+        return AI_SKIPPED_NO_KEY
+    return None
 
 
 def main(
@@ -131,9 +148,30 @@ def main(
             return 0
         override = build_override(target, root, config, spec=spec)
 
+    keys = load_keys(root, spec)
+    env_ignored = env_file_is_ignored(root, spec)
+
     started = time.perf_counter()
     findings, stats = scan(target, root, config, spec=spec, override=override)
     duration = time.perf_counter() - started
+
+    eligibility = ai_eligibility(
+        config,
+        keys,
+        len(findings),
+        no_ai=args.no_ai,
+        quiet=args.quiet,
+        env_ignored=env_ignored,
+    )
+    ai_payload_chars: int | None = None
+    if eligibility.reason is AiSkipReason.ELIGIBLE:
+        items = build_ai_items(findings)
+        ai_payload_chars = payload_characters(items)
+        if ai_payload_chars > effective_limit(config):
+            eligibility = AiEligibility(
+                reason=AiSkipReason.PAYLOAD_TOO_LARGE,
+                payload_characters=ai_payload_chars,
+            )
 
     if args.verbose:
         gitignore = root / ".gitignore"
@@ -146,6 +184,8 @@ def main(
                 stats,
                 duration,
                 gitignore_path,
+                secondary_key_configured=keys.secondary is not None,
+                ai_payload_characters=ai_payload_chars,
             ),
             file=sys.stderr,
         )
@@ -158,7 +198,7 @@ def main(
             stats.scanned,
             args.path,
             config,
-            _ai_skip_line(config, args.no_ai),
+            _ai_skip_line(eligibility.reason, config),
         )
     print(report)
     return 0

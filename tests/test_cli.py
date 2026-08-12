@@ -211,3 +211,51 @@ def test_explicit_config_excluded_target_confirmation(
     captured = capsys.readouterr()
     assert result == 0
     assert "a.py" in captured.out
+
+
+def test_unignored_env_file_refuses_ai_but_prints_report(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / ".env").write_text("TODOSCOPE_API_KEY=sk-env-secret\n")
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    monkeypatch.delenv("TODOSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("TODOSCOPE_SECONDARY_API_KEY", raising=False)
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: one" in captured.out
+    assert "not ignored by .gitignore" in captured.out
+    assert "sk-env-secret" not in captured.out
+    assert "sk-env-secret" not in captured.err
+
+
+def test_shell_key_with_ignored_env_file_is_eligible(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-secret")
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: one" in captured.out
+    assert "AI analysis skipped" not in captured.out
+    assert "sk-shell-secret" not in captured.out
+    assert "sk-shell-secret" not in captured.err
+
+
+def test_oversized_payload_skips_ai_and_keeps_findings(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m", "max_ai_characters": 10}')
+    (tmp_path / "a.py").write_text("# TODO: this comment is far too long\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-secret")
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: this comment is far too long" in captured.out
+    assert "exceed the maximum AI payload size" in captured.out
+    assert "sk-shell-secret" not in captured.out

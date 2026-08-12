@@ -11,6 +11,22 @@ from todoscope.scan import IndexedFinding
 AI_SKIPPED_NO_KEY = "AI analysis skipped: no API key was configured."
 AI_SKIPPED_NO_MODEL = "AI analysis skipped: no model was configured."
 AI_SKIPPED_NO_AI_FLAG = "AI analysis skipped: --no-ai was used."
+AI_SKIPPED_UNSAFE_ENV = (
+    "AI analysis skipped: the API key would be loaded from a .env file that "
+    "is not ignored by .gitignore."
+)
+
+
+def payload_too_large_message(config: Config) -> str:
+    """Overarching 22 message; local findings remain displayed above it."""
+    return "\n".join(
+        [
+            "AI analysis skipped.",
+            "",
+            f"The extracted {marker_label(config)} exceed the maximum AI payload size.",
+            "Scan a narrower file or directory.",
+        ]
+    )
 
 
 def marker_label(config: Config) -> str:
@@ -60,7 +76,7 @@ def standard_report(
     files_scanned: int,
     target: str,
     config: Config,
-    ai_skip_line: str,
+    ai_skip_line: str | None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -71,7 +87,8 @@ def standard_report(
         for indexed in findings:
             lines.extend(_finding_lines(indexed))
             lines.append("")
-        lines.append(ai_skip_line)
+        if ai_skip_line is not None:
+            lines.append(ai_skip_line)
     else:
         lines.append(no_findings_line(config))
     return "\n".join(lines)
@@ -94,10 +111,19 @@ def verbose_report(
     stats: ScanStats,
     duration_seconds: float,
     gitignore_path: Path | None,
+    *,
+    secondary_key_configured: bool = False,
+    ai_payload_characters: int | None = None,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
     config_used = str(config.path) if config.path is not None else "(defaults)"
     gitignore = str(gitignore_path) if gitignore_path is not None else "(none)"
+    model = config.model if config.model is not None else "(not configured)"
+    payload = (
+        str(ai_payload_characters)
+        if ai_payload_characters is not None
+        else "(no AI request)"
+    )
     return "\n".join(
         [
             f"Configuration file: {config_used}",
@@ -109,5 +135,11 @@ def verbose_report(
             f"Unreadable files: {stats.unreadable}",
             f"Symlinks skipped: {stats.symlinks}",
             f"Scan duration: {duration_seconds:.3f}s",
+            f"Configured model: {model}",
+            (
+                "Secondary API key configured: "
+                f"{'yes' if secondary_key_configured else 'no'}"
+            ),
+            f"AI payload characters: {payload}",
         ]
     )

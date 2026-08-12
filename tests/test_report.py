@@ -126,7 +126,9 @@ def test_verbose_report_contains_details_but_no_secrets(tmp_path) -> None:
     assert "Symlinks skipped: 2" in report
     assert "Scan duration: 0.125s" in report
     assert ".gitignore: (none)" in report
-    assert "API" not in report
+    assert "Configured model: (not configured)" in report
+    assert "Secondary API key configured: no" in report
+    assert "sk-" not in report
     assert "TODOSCOPE" not in report
 
 
