@@ -134,8 +134,6 @@ uv run ruff format --check .  # format check
 uv build                      # wheel + sdist
 ```
 
-## Docs
+## Changelog
 
-- [Product specification](docs/PRODUCT_END_GOAL.md)
-- [Milestone roadmap](docs/ROADMAP.md)
-- [Changelog](CHANGELOG.md)
+See [CHANGELOG.md](CHANGELOG.md).
