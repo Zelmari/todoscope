@@ -233,10 +233,20 @@ def test_unignored_env_file_refuses_ai_but_prints_report(
 def test_shell_key_with_ignored_env_file_is_eligible(
     tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    from todoscope.ai import AnalysisItem, AnalysisResult
+
     (tmp_path / ".gitignore").write_text(".env\n")
     (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
     (tmp_path / "a.py").write_text("# TODO: one\n")
     monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-secret")
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        return AnalysisResult(
+            items=(AnalysisItem(id=1, interpretation="One.", priority="Low"),),
+            overview="Summary.",
+        )
+
+    monkeypatch.setattr("todoscope.cli.analyze", fake_analyze)
     result = main([str(tmp_path)])
     captured = capsys.readouterr()
     assert result == 0
@@ -259,3 +269,58 @@ def test_oversized_payload_skips_ai_and_keeps_findings(
     assert "TODO: this comment is far too long" in captured.out
     assert "exceed the maximum AI payload size" in captured.out
     assert "sk-shell-secret" not in captured.out
+
+
+def test_ai_success_merges_into_report(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.ai import AnalysisItem, AnalysisResult
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-secret")
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        return AnalysisResult(
+            items=(
+                AnalysisItem(id=1, interpretation="Fix the thing.", priority="Medium"),
+            ),
+            overview="One maintenance task.",
+        )
+
+    monkeypatch.setattr("todoscope.cli.analyze", fake_analyze)
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "AI interpretation: Fix the thing." in captured.out
+    assert "Estimated priority: Medium" in captured.out
+    assert "Overall AI summary" in captured.out
+    assert "One maintenance task." in captured.out
+    assert "Priorities are estimated from comment text only." in captured.out
+    assert "No source code was provided to the AI." in captured.out
+    assert "sk-shell-secret" not in captured.out
+
+
+def test_ai_failure_keeps_local_report(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from todoscope.openai_client import AiRequestError
+
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    (tmp_path / "a.py").write_text("# TODO: fix the thing\n")
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-secret")
+
+    def failing_analyze(items, model, api_key, **kwargs):
+        raise AiRequestError("boom")
+
+    monkeypatch.setattr("todoscope.cli.analyze", failing_analyze)
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: fix the thing" in captured.out
+    assert "AI analysis skipped: the AI request failed." in captured.out
+    assert "Overall AI summary" not in captured.out
+    assert "sk-shell-secret" not in captured.out
+    assert "boom" not in captured.out

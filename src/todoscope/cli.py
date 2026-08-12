@@ -24,10 +24,12 @@ from todoscope.discovery import (
     load_gitignore_spec,
 )
 from todoscope.keys import env_file_is_ignored, load_keys
+from todoscope.openai_client import AiRequestError, analyze
 from todoscope.report import (
     AI_SKIPPED_NO_AI_FLAG,
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
+    AI_SKIPPED_REQUEST_FAILED,
     AI_SKIPPED_UNSAFE_ENV,
     payload_too_large_message,
     quiet_report,
@@ -104,6 +106,8 @@ def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
         return payload_too_large_message(config)
     if reason is AiSkipReason.NO_KEY:
         return AI_SKIPPED_NO_KEY
+    if reason is AiSkipReason.REQUEST_FAILED:
+        return AI_SKIPPED_REQUEST_FAILED
     return None
 
 
@@ -164,6 +168,7 @@ def main(
         env_ignored=env_ignored,
     )
     ai_payload_chars: int | None = None
+    items = None
     if eligibility.reason is AiSkipReason.ELIGIBLE:
         items = build_ai_items(findings)
         ai_payload_chars = payload_characters(items)
@@ -171,6 +176,16 @@ def main(
             eligibility = AiEligibility(
                 reason=AiSkipReason.PAYLOAD_TOO_LARGE,
                 payload_characters=ai_payload_chars,
+            )
+
+    ai_result = None
+    if eligibility.reason is AiSkipReason.ELIGIBLE:
+        try:
+            ai_result = analyze(items, config.model, keys.primary)
+        except AiRequestError:
+            eligibility = AiEligibility(
+                reason=AiSkipReason.REQUEST_FAILED,
+                payload_characters=ai_payload_chars or 0,
             )
 
     if args.verbose:
@@ -199,6 +214,7 @@ def main(
             args.path,
             config,
             _ai_skip_line(eligibility.reason, config),
+            ai_result,
         )
     print(report)
     return 0

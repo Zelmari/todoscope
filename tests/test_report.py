@@ -1,9 +1,10 @@
-"""Report formatting tests (MS-6)."""
+"""Report formatting tests (MS-6/MS-8)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from todoscope.ai import AnalysisItem, AnalysisResult
 from todoscope.config import load_config
 from todoscope.discovery import ScanStats
 from todoscope.extraction import Finding
@@ -134,3 +135,41 @@ def test_verbose_report_contains_details_but_no_secrets(tmp_path) -> None:
 
 def test_ai_skip_line_constants_are_distinct() -> None:
     assert AI_SKIPPED_NO_KEY != AI_SKIPPED_NO_MODEL != AI_SKIPPED_NO_AI_FLAG
+
+
+def test_standard_report_merges_ai_results(tmp_path) -> None:
+    config = load_config(tmp_path)
+    findings = indexed(
+        [
+            ("src/auth/session.py", 84, "TODO", "Handle expired refresh tokens"),
+            ("src/ui/dashboard.py", 27, "TODO", "Add an empty state"),
+        ]
+    )
+    ai_result = AnalysisResult(
+        items=(
+            AnalysisItem(
+                id=1,
+                interpretation="Handle refresh-token expiry.",
+                priority="High",
+            ),
+            AnalysisItem(
+                id=2,
+                interpretation="Show feedback when no data exists.",
+                priority="Low",
+            ),
+        ),
+        overview="Authentication reliability and interface completeness.",
+    )
+    report = standard_report(findings, 47, "src/", config, None, ai_result)
+    assert (
+        "1. src/auth/session.py:84\n"
+        "   TODO: Handle expired refresh tokens\n"
+        "\n"
+        "   AI interpretation: Handle refresh-token expiry.\n"
+        "   Estimated priority: High\n"
+    ) in report
+    assert "Overall AI summary" in report
+    assert "Authentication reliability and interface completeness." in report
+    assert "Priorities are estimated from comment text only." in report
+    assert "No source code was provided to the AI." in report
+    assert "AI analysis skipped" not in report

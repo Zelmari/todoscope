@@ -1,9 +1,10 @@
-"""Report formatting (MS-6): standard, quiet, and verbose output."""
+"""Report formatting (MS-6/8): standard, quiet, verbose, and AI-merged output."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from todoscope.ai import AnalysisResult
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
 from todoscope.scan import IndexedFinding
@@ -14,6 +15,12 @@ AI_SKIPPED_NO_AI_FLAG = "AI analysis skipped: --no-ai was used."
 AI_SKIPPED_UNSAFE_ENV = (
     "AI analysis skipped: the API key would be loaded from a .env file that "
     "is not ignored by .gitignore."
+)
+AI_SKIPPED_REQUEST_FAILED = "AI analysis skipped: the AI request failed."
+
+DISCLAIMER_LINES = (
+    "Priorities are estimated from comment text only.",
+    "No source code was provided to the AI.",
 )
 
 
@@ -77,20 +84,34 @@ def standard_report(
     target: str,
     config: Config,
     ai_skip_line: str | None,
+    ai_result: AnalysisResult | None = None,
 ) -> str:
-    """Complete human-readable report, printed once (Overarching 17)."""
+    """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
-    if findings:
-        lines.append("")
-        lines.append(marker_label(config))
-        lines.append("")
-        for indexed in findings:
-            lines.extend(_finding_lines(indexed))
-            lines.append("")
-        if ai_skip_line is not None:
-            lines.append(ai_skip_line)
-    else:
+    if not findings:
         lines.append(no_findings_line(config))
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append(marker_label(config))
+    lines.append("")
+    ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
+    for indexed in findings:
+        lines.extend(_finding_lines(indexed))
+        item = ai_by_id.get(indexed.id)
+        if item is not None:
+            lines.append("")
+            lines.append(f"   AI interpretation: {item.interpretation}")
+            lines.append(f"   Estimated priority: {item.priority}")
+        lines.append("")
+    if ai_result is not None:
+        lines.append("Overall AI summary")
+        lines.append("")
+        lines.append(ai_result.overview)
+        lines.append("")
+        lines.extend(DISCLAIMER_LINES)
+    elif ai_skip_line is not None:
+        lines.append(ai_skip_line)
     return "\n".join(lines)
 
 
