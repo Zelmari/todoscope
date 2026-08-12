@@ -1,10 +1,24 @@
 [project]
 name = "todoscope"
 version = "0.1.0"
-description = "Find maintenance comments in source code."
+description = "Find maintenance comments in source code and optionally interpret them with AI, without ever sending source code."
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Zelmari", email = "240836003+Zelmari@users.noreply.github.com" }
+]
+keywords = ["todo", "comments", "scanner", "cli", "maintenance"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Utilities",
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +26,9 @@ dependencies = [
     "pathspec>=1.1.1",
     "tree-sitter-language-pack>=1.14.3",
 ]
+
+[project.urls]
+Repository = "https://github.com/Zelmari/todoscope"
 
 [project.scripts]
 todoscope = "todoscope.cli:entrypoint"
