@@ -62,15 +62,77 @@ def test_nonexistent_path_fails_with_exit_code_2(
     assert "does not exist" in captured.err
 
 
-def test_valid_directory_describes_target_and_config(
+def test_valid_directory_produces_local_report(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("# TODO: fix me\n")
     result = main([str(tmp_path / "src")])
     captured = capsys.readouterr()
     assert result == 0
-    assert "Project root:" in captured.out
-    assert "markers: TODO" in captured.out
+    assert "Scanned 1 file in '" in captured.out
+    assert "and found 1 TODO comment." in captured.out
+    assert "1. a.py:1" in captured.out
+    assert "TODO: fix me" in captured.out
+
+
+def test_no_findings_report(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("print(1)\n")
+    result = main([str(tmp_path / "src")])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No TODO comments were found." in captured.out
+
+
+def test_quiet_mode_prints_one_line_per_finding(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    (tmp_path / "b.py").write_text("# TODO: two\n")
+    result = main([str(tmp_path), "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert captured.out == "a.py:1: TODO: one\nb.py:1: TODO: two\n"
+
+
+def test_no_ai_flag_keeps_report_and_names_reason(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    result = main([str(tmp_path), "--no-ai"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "AI analysis skipped: --no-ai was used." in captured.out
+
+
+def test_default_skip_line_names_missing_model(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "AI analysis skipped: no model was configured." in captured.out
+
+
+def test_verbose_details_go_to_stderr(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".gitignore").write_text("gen/\n")
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    (tmp_path / "gen").mkdir()
+    (tmp_path / "gen" / "x.py").write_text("# TODO: gen\n")
+    result = main([str(tmp_path), "--verbose"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Configuration file: (defaults)" in captured.err
+    assert "Project root:" in captured.err
+    assert ".gitignore:" in captured.err
+    assert "Excluded by .gitignore: 1" in captured.err
+    assert "Scan duration:" in captured.err
+    assert "TODO: one" in captured.out
+    assert "gen" not in captured.out
 
 
 def test_config_error_exits_with_code_3(

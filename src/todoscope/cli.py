@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from importlib.metadata import version
 from pathlib import Path
 
-from todoscope.config import Config, ConfigError, discover_project_root, load_config
+from todoscope.config import ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
     build_override,
     check_ignored,
-    discover_files,
     load_gitignore_spec,
-    relative_posix,
 )
+from todoscope.report import (
+    AI_SKIPPED_NO_AI_FLAG,
+    AI_SKIPPED_NO_KEY,
+    AI_SKIPPED_NO_MODEL,
+    quiet_report,
+    standard_report,
+    verbose_report,
+)
+from todoscope.scan import scan
 
 PROG = "todoscope"
 DESCRIPTION = "Find maintenance comments in source code."
@@ -36,25 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
         "path",
         help="file or directory to scan",
     )
-    return parser
-
-
-def _describe(config: Config) -> None:
-    markers = ", ".join(config.markers) if config.markers else "(none)"
-    extensions = ", ".join(config.extensions) if config.extensions else "(none)"
-    exclude = ", ".join(config.exclude) if config.exclude else "(none)"
-    model = config.model if config.model is not None else "(not configured)"
-    limit = (
-        config.max_ai_characters
-        if config.max_ai_characters is not None
-        else "(default hard ceiling)"
+    parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="skip AI analysis and print the local report",
     )
-    print(f"Configuration: {config.path if config.path else 'defaults'}")
-    print(f"  markers: {markers}")
-    print(f"  extensions: {extensions}")
-    print(f"  exclude: {exclude}")
-    print(f"  model: {model}")
-    print(f"  max_ai_characters: {limit}")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="print one finding per line without headings or AI",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print extra scan details to standard error",
+    )
+    return parser
 
 
 def _rule_description(source: str) -> str:
@@ -75,6 +80,14 @@ def _prompt_override(relative: str, source: str, ai_enabled: bool) -> bool:
     print()
     answer = input("Scan it anyway? [y/N] ")
     return answer.strip().lower() in {"y", "yes"}
+
+
+def _ai_skip_line(config, no_ai: bool) -> str:
+    if no_ai:
+        return AI_SKIPPED_NO_AI_FLAG
+    if config.model is None:
+        return AI_SKIPPED_NO_MODEL
+    return AI_SKIPPED_NO_KEY
 
 
 def main(
@@ -118,26 +131,36 @@ def main(
             return 0
         override = build_override(target, root, config, spec=spec)
 
-    result = discover_files(target, root, config, spec=spec, override=override)
+    started = time.perf_counter()
+    findings, stats = scan(target, root, config, spec=spec, override=override)
+    duration = time.perf_counter() - started
 
-    print(f"Target: {args.path}")
-    print(f"Project root: {root}")
-    _describe(config)
-    print()
-    if result.files:
-        print(f"Files to scan ({result.stats.scanned}):")
-        for path in result.files:
-            print(f"  {relative_posix(path, root)}")
+    if args.verbose:
+        gitignore = root / ".gitignore"
+        gitignore_path = gitignore if gitignore.is_file() else None
+        print(
+            verbose_report(
+                args.path,
+                root,
+                config,
+                stats,
+                duration,
+                gitignore_path,
+            ),
+            file=sys.stderr,
+        )
+
+    if args.quiet:
+        report = quiet_report(findings)
     else:
-        print("Files to scan (0)")
-    stats = result.stats
-    skipped = (
-        f"{stats.ignored_by_gitignore} ignored by .gitignore, "
-        f"{stats.ignored_by_config} excluded by configuration, "
-        f"{stats.unsupported} unsupported, {stats.unreadable} unreadable, "
-        f"{stats.symlinks} symlinks"
-    )
-    print(f"Skipped: {skipped}")
+        report = standard_report(
+            findings,
+            stats.scanned,
+            args.path,
+            config,
+            _ai_skip_line(config, args.no_ai),
+        )
+    print(report)
     return 0
 
 
