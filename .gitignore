@@ -1,0 +1,7 @@
+# Plans
+todoscope plans/
+
+# Environment
+.env
+.env.*
+!.env.example
