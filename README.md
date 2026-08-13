@@ -189,6 +189,10 @@ git push --tags
 The publish workflow verifies everything, uploads to PyPI using the
 `PYPI_TOKEN` repository secret, and creates a GitHub release automatically.
 
+To re-publish an older tag (for example, backfilling a version that never
+made it to PyPI), run the workflow manually: Actions → Publish → Run
+workflow, and set the `ref` input to the tag name (e.g. `v0.5.0`).
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
