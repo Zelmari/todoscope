@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 (2026-08-13)
+
+### Added
+
+- GitHub Actions CI (tests, lint, format, build on push and pull requests,
+  Python 3.12 and 3.13).
+- Publish-on-tag workflow: gates, build, PyPI upload via the `PYPI_TOKEN`
+  repository secret, and an automatic GitHub release.
+
 ## 0.1.1 (2026-08-13)
 
 ## Changed

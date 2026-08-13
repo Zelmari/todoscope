@@ -134,6 +134,24 @@ uv run ruff format --check .  # format check
 uv build                      # wheel + sdist
 ```
 
+Continuous integration runs these same checks on every push and pull
+request (Python 3.12 and 3.13).
+
+## Releasing
+
+1. Bump `version` in `pyproject.toml` (minor for features, patch for fixes).
+2. Add a `CHANGELOG.md` entry for the new version.
+3. Commit, then tag and push the tag:
+
+```bash
+git tag v0.2.0
+git push
+git push --tags
+```
+
+The publish workflow verifies everything, uploads to PyPI using the
+`PYPI_TOKEN` repository secret, and creates a GitHub release automatically.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
