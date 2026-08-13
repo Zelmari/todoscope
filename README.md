@@ -38,21 +38,31 @@ python3 -m pip install todoscope
 ## Use
 
 ```bash
-todoscope src/                # scan a folder recursively
+todoscope src/                # scan a folder recursively (local only)
 todoscope src/main.py         # scan one file
 todoscope .                   # scan the whole project
-todoscope src/ --no-ai        # normal report, skip AI
-todoscope src/ --quiet        # one line per finding, no headings, no AI
+todoscope src/ --ai           # add AI interpretations and priorities
+todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
 ```
 
-That's it. Findings are sorted by folder depth, then path, then line.
+That's it. Findings are sorted by folder depth, then path, then line, and
+every text mode uses the same canonical line:
+
+```text
+1. src/auth/session.py:84: TODO: Handle expired refresh tokens
+```
+
+Scanning is local by default — `--ai` is opt-in and never runs when
+`--quiet` is given (the combination prints a note and behaves like plain
+`--quiet`).
 
 `--format json` prints a deterministic JSON document to stdout (scan
 metadata, findings, skipped counts, and the AI section with a machine-
-readable status/reason). Verbose details and errors always go to stderr.
-JSON never contains API keys or environment values.
+readable status/reason). Without `--ai`, the AI section is `null`. Verbose
+details and errors always go to stderr. JSON never contains API keys or
+environment values.
 
 ## Configuration
 
@@ -80,7 +90,7 @@ Invalid configuration stops with a clear error (exit code 3).
 
 ## AI analysis
 
-To enable it you need both:
+AI is opt-in: pass `--ai` to request it. To enable it you need both:
 
 1. An API key — from your shell (`TODOSCOPE_API_KEY`) or a `.env` file in the
    project root:

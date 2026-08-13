@@ -37,17 +37,18 @@ def build_fixture(tmp_path):
 
 def test_end_to_end_local_scan_obeys_all_rules(tmp_path, capsys) -> None:
     root = build_fixture(tmp_path)
-    result = main([str(root), "--no-ai"])
+    result = main([str(root)])
     captured = capsys.readouterr()
     assert result == 0
     assert "Scanned 3 files in '" in captured.out
     assert "and found 3 TODO, FIXME comments." in captured.out
-    assert "1. main.py:1" in captured.out
-    assert "2. src/app.js:1" in captured.out
-    assert "3. src/deep/util.rs:1" in captured.out
+    assert "1. main.py:1: TODO: fix main flow" in captured.out
+    assert "2. src/app.js:1: FIXME: repair this" in captured.out
+    assert "3. src/deep/util.rs:1: TODO: replace this" in captured.out
     for missing in ("legacy/old.py", "node_modules", "notes.md", "not a comment"):
         assert missing not in captured.out
-    assert "AI analysis skipped: --no-ai was used." in captured.out
+    assert "AI analysis skipped" not in captured.out
+    assert "AI:" not in captured.out
 
 
 def test_end_to_end_ai_merge(tmp_path, monkeypatch, capsys) -> None:
@@ -69,10 +70,10 @@ def test_end_to_end_ai_merge(tmp_path, monkeypatch, capsys) -> None:
         )
 
     monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
-    result = main([str(root)])
+    result = main([str(root), "--ai"])
     captured = capsys.readouterr()
     assert result == 0
-    assert "AI interpretation: Interpret fix main flow." in captured.out
+    assert "   AI: Interpret fix main flow. (Medium)" in captured.out
     assert "Overall AI summary" in captured.out
     assert "Three maintenance comments." in captured.out
     assert "Priorities are estimated from comment text only." in captured.out
@@ -86,16 +87,16 @@ def test_end_to_end_quiet_output(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert result == 0
     assert captured.out == (
-        "main.py:1: TODO: fix main flow\n"
-        "src/app.js:1: FIXME: repair this\n"
-        "src/deep/util.rs:1: TODO: replace this\n"
+        "1. main.py:1: TODO: fix main flow\n"
+        "2. src/app.js:1: FIXME: repair this\n"
+        "3. src/deep/util.rs:1: TODO: replace this\n"
     )
 
 
 def test_installed_module_scan_smoke(tmp_path) -> None:
     root = build_fixture(tmp_path)
     result = subprocess.run(
-        [sys.executable, "-m", "todoscope", str(root), "--no-ai"],
+        [sys.executable, "-m", "todoscope", str(root)],
         capture_output=True,
         text=True,
         check=False,

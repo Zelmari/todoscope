@@ -100,7 +100,7 @@ def test_eligibility_requires_key_model_and_findings(tmp_path) -> None:
     config = load_config(tmp_path)
     assert (
         ai_eligibility(
-            config, keys(None), 3, no_ai=False, quiet=False, env_ignored=True
+            config, keys(None), 3, ai_requested=True, env_ignored=True
         ).reason
         is AiSkipReason.NO_MODEL
     )
@@ -108,38 +108,30 @@ def test_eligibility_requires_key_model_and_findings(tmp_path) -> None:
     config = load_config(tmp_path)
     assert (
         ai_eligibility(
-            config, keys(None), 3, no_ai=False, quiet=False, env_ignored=True
+            config, keys(None), 3, ai_requested=True, env_ignored=True
         ).reason
         is AiSkipReason.NO_KEY
     )
     assert (
-        ai_eligibility(
-            config, keys(), 3, no_ai=False, quiet=False, env_ignored=True
-        ).reason
+        ai_eligibility(config, keys(), 3, ai_requested=True, env_ignored=True).reason
         is AiSkipReason.ELIGIBLE
     )
     assert (
-        ai_eligibility(
-            config, keys(), 0, no_ai=False, quiet=False, env_ignored=True
-        ).reason
+        ai_eligibility(config, keys(), 0, ai_requested=True, env_ignored=True).reason
         is AiSkipReason.NO_FINDINGS
     )
 
 
-def test_eligibility_flags(tmp_path) -> None:
+def test_eligibility_not_requested(tmp_path) -> None:
     (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
     config = load_config(tmp_path)
     assert (
-        ai_eligibility(
-            config, keys(), 3, no_ai=True, quiet=False, env_ignored=True
-        ).reason
-        is AiSkipReason.DISABLED
+        ai_eligibility(config, keys(), 3, ai_requested=False, env_ignored=True).reason
+        is AiSkipReason.NOT_REQUESTED
     )
     assert (
-        ai_eligibility(
-            config, keys(), 3, no_ai=False, quiet=True, env_ignored=True
-        ).reason
-        is AiSkipReason.QUIET
+        ai_eligibility(config, keys(), 0, ai_requested=False, env_ignored=True).reason
+        is AiSkipReason.NOT_REQUESTED
     )
 
 
@@ -153,15 +145,11 @@ def test_eligibility_refuses_unignored_env_file_keys(tmp_path) -> None:
         secondary_source="none",
     )
     assert (
-        ai_eligibility(
-            config, env_keys, 3, no_ai=False, quiet=False, env_ignored=False
-        ).reason
+        ai_eligibility(config, env_keys, 3, ai_requested=True, env_ignored=False).reason
         is AiSkipReason.UNSAFE_ENV
     )
     assert (
-        ai_eligibility(
-            config, env_keys, 3, no_ai=False, quiet=False, env_ignored=True
-        ).reason
+        ai_eligibility(config, env_keys, 3, ai_requested=True, env_ignored=True).reason
         is AiSkipReason.ELIGIBLE
     )
     shell_keys = KeyInfo(
@@ -169,7 +157,7 @@ def test_eligibility_refuses_unignored_env_file_keys(tmp_path) -> None:
     )
     assert (
         ai_eligibility(
-            config, shell_keys, 3, no_ai=False, quiet=False, env_ignored=False
+            config, shell_keys, 3, ai_requested=True, env_ignored=False
         ).reason
         is AiSkipReason.ELIGIBLE
     )

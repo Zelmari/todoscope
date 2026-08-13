@@ -9,9 +9,13 @@ from todoscope.config import load_config
 from todoscope.discovery import ScanStats
 from todoscope.extraction import Finding
 from todoscope.report import (
-    AI_SKIPPED_NO_AI_FLAG,
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
+    AI_SKIPPED_NONINTERACTIVE,
+    AI_SKIPPED_REQUEST_FAILED,
+    AI_SKIPPED_SECONDARY_FAILED,
+    AI_SKIPPED_UNSAFE_ENV,
+    QUIET_AI_CONFLICT,
     marker_label,
     no_findings_line,
     quiet_report,
@@ -72,8 +76,7 @@ def test_standard_report_structure(tmp_path) -> None:
         "\n"
         "TODO comments\n"
         "\n"
-        "1. src/auth/session.py:84\n"
-        "   TODO: Handle expired refresh tokens\n"
+        "1. src/auth/session.py:84: TODO: Handle expired refresh tokens\n"
         "\n"
         "AI analysis skipped: no API key was configured."
     )
@@ -89,9 +92,16 @@ def test_standard_report_no_findings(tmp_path) -> None:
 def test_standard_report_empty_todo(tmp_path) -> None:
     config = load_config(tmp_path)
     findings = indexed([("a.py", 1, "TODO", "")])
-    report = standard_report(findings, 1, "a.py", config, AI_SKIPPED_NO_AI_FLAG)
-    assert "   TODO\n" in report
-    assert AI_SKIPPED_NO_AI_FLAG in report
+    report = standard_report(findings, 1, "a.py", config, AI_SKIPPED_NO_KEY)
+    assert "1. a.py:1: TODO\n" in report
+    assert AI_SKIPPED_NO_KEY in report
+
+
+def test_standard_report_without_ai_ends_after_findings(tmp_path) -> None:
+    config = load_config(tmp_path)
+    findings = indexed([("a.py", 3, "TODO", "Fix this")])
+    report = standard_report(findings, 1, "a.py", config, None)
+    assert report.endswith("1. a.py:3: TODO: Fix this")
 
 
 def test_quiet_report(tmp_path) -> None:
@@ -103,9 +113,9 @@ def test_quiet_report(tmp_path) -> None:
         ]
     )
     assert quiet_report(findings) == (
-        "src/auth/session.py:84: TODO: Handle expired refresh tokens\n"
-        "src/api/users.py:41: TODO: Validate pagination limits\n"
-        "a.py:3: TODO"
+        "1. src/auth/session.py:84: TODO: Handle expired refresh tokens\n"
+        "2. src/api/users.py:41: TODO: Validate pagination limits\n"
+        "3. a.py:3: TODO"
     )
 
 
@@ -134,7 +144,19 @@ def test_verbose_report_contains_details_but_no_secrets(tmp_path) -> None:
 
 
 def test_ai_skip_line_constants_are_distinct() -> None:
-    assert AI_SKIPPED_NO_KEY != AI_SKIPPED_NO_MODEL != AI_SKIPPED_NO_AI_FLAG
+    constants = (
+        AI_SKIPPED_NO_KEY,
+        AI_SKIPPED_NO_MODEL,
+        AI_SKIPPED_UNSAFE_ENV,
+        AI_SKIPPED_REQUEST_FAILED,
+        AI_SKIPPED_NONINTERACTIVE,
+        AI_SKIPPED_SECONDARY_FAILED,
+    )
+    assert len(set(constants)) == len(constants)
+
+
+def test_quiet_ai_conflict_message() -> None:
+    assert QUIET_AI_CONFLICT == "--quiet and --ai cannot be used together."
 
 
 def test_standard_report_merges_ai_results(tmp_path) -> None:
@@ -162,13 +184,13 @@ def test_standard_report_merges_ai_results(tmp_path) -> None:
     )
     report = standard_report(findings, 47, "src/", config, None, ai_result)
     assert (
-        "1. src/auth/session.py:84\n"
-        "   TODO: Handle expired refresh tokens\n"
+        "1. src/auth/session.py:84: TODO: Handle expired refresh tokens\n"
+        "   AI: Handle refresh-token expiry. (High)\n"
         "\n"
-        "   AI interpretation: Handle refresh-token expiry.\n"
-        "   Estimated priority: High\n"
+        "2. src/ui/dashboard.py:27: TODO: Add an empty state\n"
+        "   AI: Show feedback when no data exists. (Low)\n"
     ) in report
-    assert "Overall AI summary" in report
+    assert "\n\nOverall AI summary\n" in report
     assert "Authentication reliability and interface completeness." in report
     assert "Priorities are estimated from comment text only." in report
     assert "No source code was provided to the AI." in report

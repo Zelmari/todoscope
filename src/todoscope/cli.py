@@ -27,13 +27,13 @@ from todoscope.discovery import (
 from todoscope.keys import env_file_is_ignored, load_keys
 from todoscope.openai_client import AiOutcomeKind, run_ai_analysis
 from todoscope.report import (
-    AI_SKIPPED_NO_AI_FLAG,
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
     AI_SKIPPED_NONINTERACTIVE,
     AI_SKIPPED_REQUEST_FAILED,
     AI_SKIPPED_SECONDARY_FAILED,
     AI_SKIPPED_UNSAFE_ENV,
+    QUIET_AI_CONFLICT,
     json_report,
     payload_too_large_message,
     quiet_report,
@@ -63,9 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="file or directory to scan",
     )
     parser.add_argument(
-        "--no-ai",
+        "--ai",
         action="store_true",
-        help="skip AI analysis and print the local report",
+        help="interpret findings with the configured AI model",
     )
     parser.add_argument(
         "--quiet",
@@ -115,8 +115,6 @@ def _prompt_secondary() -> bool:
 
 
 def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
-    if reason is AiSkipReason.DISABLED:
-        return AI_SKIPPED_NO_AI_FLAG
     if reason is AiSkipReason.NO_MODEL:
         return AI_SKIPPED_NO_MODEL
     if reason is AiSkipReason.UNSAFE_ENV:
@@ -148,7 +146,7 @@ def _json_ai_state(
         if outcome_kind is AiOutcomeKind.SUCCESS:
             return None, None
         return "failed", outcome_kind.value
-    if reason is AiSkipReason.ELIGIBLE:
+    if reason is AiSkipReason.NOT_REQUESTED or reason is AiSkipReason.ELIGIBLE:
         return None, None
     return "skipped", reason.value
 
@@ -203,12 +201,14 @@ def main(
     findings, stats = scan(target, root, config, spec=spec, override=override)
     duration = time.perf_counter() - started
 
+    if args.quiet and args.ai:
+        print(QUIET_AI_CONFLICT, file=sys.stderr)
+
     eligibility = ai_eligibility(
         config,
         keys,
         len(findings),
-        no_ai=args.no_ai,
-        quiet=args.quiet,
+        ai_requested=args.ai and not args.quiet,
         env_ignored=env_ignored,
     )
     ai_payload_chars: int | None = None

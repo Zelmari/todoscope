@@ -96,7 +96,7 @@ def test_json_contains_no_keys(tmp_path, monkeypatch, capsys) -> None:
         )
 
     monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
-    result = main([str(tmp_path), "--format", "json"])
+    result = main([str(tmp_path), "--ai", "--format", "json"])
     captured = capsys.readouterr()
     assert result == 0
     data = json.loads(captured.out)
@@ -118,7 +118,7 @@ def test_json_ai_failed_reason_mapping(tmp_path, monkeypatch, capsys) -> None:
 
     monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
     result = main(
-        [str(tmp_path), "--format", "json"],
+        [str(tmp_path), "--ai", "--format", "json"],
         interactive=True,
         confirm_secondary=lambda: False,
         status=None,
@@ -138,4 +138,14 @@ def test_json_quiet_combination_uses_json(tmp_path, capsys) -> None:
     assert result == 0
     data = json.loads(captured.out)
     assert data["findings_count"] == 1
-    assert data["ai"]["status"] == "skipped"
+    assert data["ai"] is None
+
+
+def test_json_without_ai_section_is_null(tmp_path, capsys) -> None:
+    (tmp_path / "a.py").write_text("# TODO: one\n")
+    result = main([str(tmp_path), "--format", "json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    data = json.loads(captured.out)
+    assert data["findings_count"] == 1
+    assert data["ai"] is None

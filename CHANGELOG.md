@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0 (2026-08-13)
+
+### Changed (breaking)
+
+- AI is now opt-in: plain `todoscope` scans locally with no AI request and
+  no AI output; pass `--ai` to add interpretations and priorities.
+- `--no-ai` removed (local-only is the default).
+- Unified finding format across text modes: one canonical numbered line
+  (`1. path:line: MARKER: text`) in standard and quiet output; quiet drops
+  only headers and summaries.
+- `--quiet` and `--ai` together are rejected with a note on stderr and
+  behave as plain `--quiet` (no AI request).
+- `--format json` without `--ai` now reports `"ai": null`.
+
+
 ## 0.7.0 (2026-08-13)
 
 ### Added

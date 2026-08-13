@@ -13,7 +13,6 @@ from todoscope.scan import IndexedFinding
 
 AI_SKIPPED_NO_KEY = "AI analysis skipped: no API key was configured."
 AI_SKIPPED_NO_MODEL = "AI analysis skipped: no model was configured."
-AI_SKIPPED_NO_AI_FLAG = "AI analysis skipped: --no-ai was used."
 AI_SKIPPED_UNSAFE_ENV = (
     "AI analysis skipped: the API key would be loaded from a .env file that "
     "is not ignored by .gitignore."
@@ -24,6 +23,8 @@ AI_SKIPPED_NONINTERACTIVE = (
     "was skipped in non-interactive mode."
 )
 AI_SKIPPED_SECONDARY_FAILED = "AI analysis skipped: the secondary AI request failed."
+
+QUIET_AI_CONFLICT = "--quiet and --ai cannot be used together."
 
 DISCLAIMER_LINES = (
     "Priorities are estimated from comment text only.",
@@ -72,17 +73,15 @@ def no_findings_line(config: Config) -> str:
     return f"No {marker_label(config)} were found."
 
 
-def _finding_lines(indexed: IndexedFinding) -> list[str]:
+def _finding_line(indexed: IndexedFinding) -> str:
+    """The one canonical finding line used by every text mode."""
     finding = indexed.finding
-    if finding.text:
-        return [
-            f"{indexed.id}. {finding.path}:{finding.line}",
-            f"   {finding.marker}: {finding.text}",
-        ]
-    return [
-        f"{indexed.id}. {finding.path}:{finding.line}",
-        f"   {finding.marker}",
-    ]
+    suffix = f": {finding.text}" if finding.text else ""
+    return f"{indexed.id}. {finding.path}:{finding.line}: {finding.marker}{suffix}"
+
+
+def _ai_detail_line(item) -> str:
+    return f"   AI: {item.interpretation} ({item.priority})"
 
 
 def standard_report(
@@ -103,33 +102,30 @@ def standard_report(
     lines.append(marker_label(config))
     lines.append("")
     ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
+    blocks: list[str] = []
     for indexed in findings:
-        lines.extend(_finding_lines(indexed))
+        block = [_finding_line(indexed)]
         item = ai_by_id.get(indexed.id)
         if item is not None:
-            lines.append("")
-            lines.append(f"   AI interpretation: {item.interpretation}")
-            lines.append(f"   Estimated priority: {item.priority}")
-        lines.append("")
+            block.append(_ai_detail_line(item))
+        blocks.append("\n".join(block))
+    lines.append("\n\n".join(blocks))
     if ai_result is not None:
+        lines.append("")
         lines.append("Overall AI summary")
         lines.append("")
         lines.append(ai_result.overview)
         lines.append("")
         lines.extend(DISCLAIMER_LINES)
     elif ai_skip_line is not None:
+        lines.append("")
         lines.append(ai_skip_line)
     return "\n".join(lines)
 
 
 def quiet_report(findings: tuple[IndexedFinding, ...]) -> str:
-    """One finding per line, no headings or summaries (Overarching 28)."""
-    lines: list[str] = []
-    for indexed in findings:
-        finding = indexed.finding
-        suffix = f": {finding.text}" if finding.text else ""
-        lines.append(f"{finding.path}:{finding.line}: {finding.marker}{suffix}")
-    return "\n".join(lines)
+    """One canonical finding line each, nothing else (Overarching 28)."""
+    return "\n".join(_finding_line(indexed) for indexed in findings)
 
 
 def json_report(

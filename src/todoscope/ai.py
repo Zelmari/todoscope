@@ -50,9 +50,8 @@ an execution order, and do not claim to understand any implementation.
 
 
 class AiSkipReason(StrEnum):
+    NOT_REQUESTED = "not-requested"
     NO_FINDINGS = "no-findings"
-    DISABLED = "disabled"
-    QUIET = "quiet"
     NO_KEY = "no-key"
     NO_MODEL = "no-model"
     UNSAFE_ENV = "unsafe-env"
@@ -95,15 +94,12 @@ def ai_eligibility(
     keys: KeyInfo,
     finding_count: int,
     *,
-    no_ai: bool,
-    quiet: bool,
+    ai_requested: bool,
     env_ignored: bool,
 ) -> AiEligibility:
     """Decide whether an AI request may be made, and why not otherwise."""
-    if quiet:
-        return AiEligibility(AiSkipReason.QUIET)
-    if no_ai:
-        return AiEligibility(AiSkipReason.DISABLED)
+    if not ai_requested:
+        return AiEligibility(AiSkipReason.NOT_REQUESTED)
     if finding_count == 0:
         return AiEligibility(AiSkipReason.NO_FINDINGS)
     if config.model is None:
