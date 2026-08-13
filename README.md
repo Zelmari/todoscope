@@ -14,7 +14,8 @@ todoscope src/
   that start with your markers (`TODO` by default).
 - Only real comments count: `TODO` inside strings, template literals, JSX
   text, or raw strings is ignored.
-- Respects your `.gitignore` and an optional exclusion list.
+- Respects every `.gitignore` in the tree (root and nested, with git's
+  override semantics) and an optional exclusion list.
 - Works fully offline — the AI part is optional.
 - When AI is on, it sends only each comment's ID, marker, and text. No file
   names, no paths, no line numbers, no code.

@@ -75,12 +75,14 @@ def test_negation_cannot_reinclude_under_excluded_dir(tmp_path) -> None:
     assert result.files == ()
 
 
-def test_nested_gitignore_is_not_applied(tmp_path) -> None:
+def test_nested_gitignore_is_applied(tmp_path) -> None:
     write(tmp_path / ".gitignore", "")
     write(tmp_path / "sub" / ".gitignore", "nested.py\n")
     write(tmp_path / "sub" / "nested.py")
+    write(tmp_path / "sub" / "kept.py")
     result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
-    assert names(result, tmp_path) == ["sub/nested.py"]
+    assert names(result, tmp_path) == ["sub/kept.py"]
+    assert result.stats.ignored_by_gitignore == 1
 
 
 def test_config_exclude_exact_file(tmp_path) -> None:

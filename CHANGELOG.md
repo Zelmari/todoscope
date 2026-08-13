@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 (2026-08-13)
+
+### Added
+
+- Nested `.gitignore` support with git semantics: patterns are relative to
+  their own directory, deeper files override earlier ones, and excluded
+  directories stay pruned. Explicit-target confirmation now covers rules
+  from nested files too.
+
+
 ## 0.4.0 (2026-08-13)
 
 ### Added
@@ -35,5 +45,4 @@
 
 ### Known limitations
 
-- Nested `.gitignore` files are not applied yet.
 - No structured JSON output; no secret detection inside comments.
