@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.4 (2026-08-13)
+
+### Fixed
+
+- Worker-crash serial retries are now visible: verbose reports
+  "Chunks retried serially after worker crash: N" instead of degrading
+  silently.
+- Benchmarks report physical cores separately from threads (16 cores / 32
+  threads on the reference machine); BENCHMARKS.md corrected.
+- Blame gained a 120s aggregate budget: past the cap, remaining files
+  render "Blame unavailable" and verbose says so, so N files can never
+  stall a scan for N x 30s.
+- Pool fill loop simplified to track only the newly submitted future.
+
+
 ## 0.9.3 (2026-08-13)
 
 ### Changed
