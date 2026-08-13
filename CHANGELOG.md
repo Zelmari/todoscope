@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.1 (2026-08-13)
+
+### Fixed
+
+- Replaced tree-sitter-language-pack (which downloaded parser binaries from
+  GitHub at first use, breaking CI and offline scans) with the individual
+  tree-sitter grammar packages, whose wheels bundle the grammars. Scanning
+  now needs no network access at all.
+
+
 ## 0.8.0 (2026-08-13)
 
 ### Changed (breaking)

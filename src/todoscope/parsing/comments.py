@@ -1,16 +1,17 @@
 """Language-aware comment extraction.
 
-Strategy (MS-2 decision):
+Strategy (MS-2 decision, revised MS-17-fix):
 
 - Python: standard-library ``tokenize``. It is lexical, understands raw and
   triple-quoted strings, and never reports string contents as comments. On
   lexical errors (e.g. an unterminated multiline string) it raises
   ``TokenError``; we stop and return the comments found so far rather than
   risking false positives.
-- JavaScript, TypeScript, TSX, Rust: Tree-sitter via
-  ``tree-sitter-language-pack``. Grammar-aware parsing correctly separates
-  comments from template literals, JSX text, and raw strings, and tolerates
-  syntax errors.
+- All other languages: Tree-sitter via the individual grammar packages
+  (tree-sitter-javascript, -typescript, -rust, -java, -go, -c, -cpp,
+  -c-sharp). Grammars are bundled inside the wheels, so no runtime download
+  ever happens (the language-pack alternative fetched binaries from GitHub
+  at first use, which broke CI and offline scans).
 """
 
 from __future__ import annotations
@@ -21,7 +22,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from tree_sitter_language_pack import get_parser
+import tree_sitter
+import tree_sitter_c as _c
+import tree_sitter_c_sharp as _c_sharp
+import tree_sitter_cpp as _cpp
+import tree_sitter_go as _go
+import tree_sitter_java as _java
+import tree_sitter_javascript as _javascript
+import tree_sitter_rust as _rust
+import tree_sitter_typescript as _typescript
 
 CommentKind = Literal["line", "block"]
 
@@ -50,6 +59,23 @@ class Comment:
 
 
 _TREE_SITTER_COMMENT_TYPES = ("comment", "line_comment", "block_comment")
+
+_LANGUAGE_FACTORIES = {
+    Language.JAVASCRIPT: _javascript.language,
+    Language.TYPESCRIPT: _typescript.language_typescript,
+    Language.TSX: _typescript.language_tsx,
+    Language.RUST: _rust.language,
+    Language.JAVA: _java.language,
+    Language.GO: _go.language,
+    Language.C: _c.language,
+    Language.CPP: _cpp.language,
+    Language.CSHARP: _c_sharp.language,
+}
+
+
+def _parser_for(language: Language) -> tree_sitter.Parser:
+    grammar = tree_sitter.Language(_LANGUAGE_FACTORIES[language]())
+    return tree_sitter.Parser(grammar)
 
 
 def _decode(node_text: bytes) -> str:
@@ -83,8 +109,8 @@ def _strip_trailing_newline(text: str) -> str:
 
 
 def extract_tree_sitter_comments(source: str, language: Language) -> list[Comment]:
-    """Extract real comments from JS/TS/TSX/Rust source using Tree-sitter."""
-    parser = get_parser(language.value)
+    """Extract real comments from non-Python source using Tree-sitter."""
+    parser = _parser_for(language)
     tree = parser.parse(source.encode("utf-8"))
 
     comments: list[Comment] = []
