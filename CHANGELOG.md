@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 (2026-08-13)
+
+### Added
+
+- Adaptive parallel scanning: large workloads (2 MB+ across multiple files)
+  are extracted in a process pool (up to 8 workers); smaller scans stay
+  serial. Results and ordering are identical either way.
+
+
 ## 0.3.0 (2026-08-13)
 
 ### Added
