@@ -5,12 +5,9 @@ where, and why it matters, so it can be resolved deliberately later.
 
 ## 1. Redundant `pending.update(future_to_index)` in the pool fill loop
 
-- Where: `src/todoscope/scan.py`, `_extract_parallel` fill loop.
-- What: `pending.update(future_to_index)` re-adds futures that are already in
-  `pending`; only `pending.add(future)` is needed. Harmless, but a reviewer
-  will ask "why?" when they see it.
-- Fix: simplify to add just the newly submitted future.
-- Status: deferred.
+- Status: **RESOLVED (2026-08-13, 0.9.4)** — the fill loop now adds only
+  the newly submitted future (`submit_next()` returns the Future and
+  `pending.add(future)` keeps the set in sync).
 
 ## 2. BENCHMARKS.md claims "32 cores"
 

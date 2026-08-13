@@ -105,10 +105,10 @@ def _extract_parallel(
             future_to_index: dict[Future, int] = {}
             next_index = 0
 
-            def submit_next() -> bool:
+            def submit_next() -> Future | None:
                 nonlocal next_index
                 if next_index >= len(chunks):
-                    return False
+                    return None
                 index = next_index
                 next_index += 1
                 future = executor.submit(
@@ -118,12 +118,15 @@ def _extract_parallel(
                     config.markers,
                 )
                 future_to_index[future] = index
-                return True
+                return future
 
             pending: set[Future] = set()
             while True:
-                while len(pending) < window and submit_next():
-                    pending.update(future_to_index)
+                while len(pending) < window:
+                    future = submit_next()
+                    if future is None:
+                        break
+                    pending.add(future)
                 if not pending:
                     break
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
