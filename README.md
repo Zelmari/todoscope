@@ -42,6 +42,7 @@ todoscope src/                # scan a folder recursively (local only)
 todoscope src/main.py         # scan one file
 todoscope .                   # scan the whole project
 todoscope src/ --ai           # add AI interpretations and priorities
+todoscope src/ --blame        # add who-authored-each-finding via git blame
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
@@ -56,7 +57,9 @@ every text mode uses the same canonical line:
 
 Scanning is local by default — `--ai` is opt-in and never runs when
 `--quiet` is given (the combination prints a note and behaves like plain
-`--quiet`).
+`--quiet`). `--blame` requires a Git repository, adds one attribution line
+per finding (from a single `git blame --porcelain` call per file), and is
+likewise rejected with `--quiet`. Blame data never reaches the AI.
 
 `--format json` prints a deterministic JSON document to stdout (scan
 metadata, findings, skipped counts, and the AI section with a machine-

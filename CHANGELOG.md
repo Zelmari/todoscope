@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 (2026-08-13)
+
+### Added
+
+- `--blame`: adds a `Authored by <author> · <date> · <commit>` line under
+  each finding (one `git blame --porcelain` call per file, 30s timeout,
+  failures isolated per file). Requires a Git repository; rejected together
+  with `--quiet`; JSON gains per-finding `"blame"`; verbose gains blame
+  stats. Blame data is structurally separate from findings and can never
+  enter the AI payload (privacy-tested).
+
+
 ## 0.8.3 (2026-08-13)
 
 ### Changed

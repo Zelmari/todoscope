@@ -84,6 +84,15 @@ def _ai_detail_line(item) -> str:
     return f"   AI: {item.interpretation} ({item.priority})"
 
 
+def blame_detail_line(info) -> str:
+    """Attribution line for a finding (blame data never enters the AI)."""
+    if info is None:
+        return "   Blame unavailable"
+    if info.uncommitted:
+        return "   Not yet committed"
+    return f"   Authored by {info.author} · {info.date} · {info.commit[:7]}"
+
+
 def standard_report(
     findings: tuple[IndexedFinding, ...],
     files_scanned: int,
@@ -91,6 +100,7 @@ def standard_report(
     config: Config,
     ai_skip_line: str | None,
     ai_result: AnalysisResult | None = None,
+    blames: dict[str, dict[int, object]] | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -105,6 +115,9 @@ def standard_report(
     blocks: list[str] = []
     for indexed in findings:
         block = [_finding_line(indexed)]
+        if blames is not None:
+            file_blames = blames.get(indexed.finding.path, {})
+            block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
         item = ai_by_id.get(indexed.id)
         if item is not None:
             block.append(_ai_detail_line(item))
@@ -138,6 +151,7 @@ def json_report(
     ai_result: AnalysisResult | None = None,
     ai_status: str | None = None,
     ai_reason: str | None = None,
+    blames: dict[str, dict[int, object]] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -163,6 +177,27 @@ def json_report(
         if ai_reason is not None:
             ai_section["reason"] = ai_reason
 
+    def finding_entry(indexed: IndexedFinding) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "id": indexed.id,
+            "marker": indexed.finding.marker,
+            "text": indexed.finding.text,
+            "path": indexed.finding.path,
+            "line": indexed.finding.line,
+        }
+        if blames is not None:
+            info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+            entry["blame"] = (
+                {
+                    "author": info.author,
+                    "date": info.date,
+                    "commit": info.commit,
+                }
+                if info is not None
+                else None
+            )
+        return entry
+
     return {
         "tool": "todoscope",
         "version": version("todoscope"),
@@ -171,16 +206,7 @@ def json_report(
         "files_scanned": files_scanned,
         "markers": list(config.markers),
         "findings_count": len(findings),
-        "findings": [
-            {
-                "id": indexed.id,
-                "marker": indexed.finding.marker,
-                "text": indexed.finding.text,
-                "path": indexed.finding.path,
-                "line": indexed.finding.line,
-            }
-            for indexed in findings
-        ],
+        "findings": [finding_entry(indexed) for indexed in findings],
         "skipped": {
             "ignored_by_gitignore": stats.ignored_by_gitignore,
             "ignored_by_config": stats.ignored_by_config,
@@ -202,6 +228,8 @@ def verbose_report(
     *,
     secondary_key_configured: bool = False,
     ai_payload_characters: int | None = None,
+    blame_files: int | None = None,
+    blame_unavailable: int | None = None,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
     config_used = str(config.path) if config.path is not None else "(defaults)"
@@ -212,22 +240,24 @@ def verbose_report(
         if ai_payload_characters is not None
         else "(no AI request)"
     )
-    return "\n".join(
-        [
-            f"Configuration file: {config_used}",
-            f"Project root: {project_root}",
-            f".gitignore: {gitignore}",
-            f"Excluded by .gitignore: {stats.ignored_by_gitignore}",
-            f"Excluded by configuration: {stats.ignored_by_config}",
-            f"Unsupported files: {stats.unsupported}",
-            f"Unreadable files: {stats.unreadable}",
-            f"Symlinks skipped: {stats.symlinks}",
-            f"Scan duration: {duration_seconds:.3f}s",
-            f"Configured model: {model}",
-            (
-                "Secondary API key configured: "
-                f"{'yes' if secondary_key_configured else 'no'}"
-            ),
-            f"AI payload characters: {payload}",
-        ]
-    )
+    lines = [
+        f"Configuration file: {config_used}",
+        f"Project root: {project_root}",
+        f".gitignore: {gitignore}",
+        f"Excluded by .gitignore: {stats.ignored_by_gitignore}",
+        f"Excluded by configuration: {stats.ignored_by_config}",
+        f"Unsupported files: {stats.unsupported}",
+        f"Unreadable files: {stats.unreadable}",
+        f"Symlinks skipped: {stats.symlinks}",
+        f"Scan duration: {duration_seconds:.3f}s",
+        f"Configured model: {model}",
+        (
+            "Secondary API key configured: "
+            f"{'yes' if secondary_key_configured else 'no'}"
+        ),
+        f"AI payload characters: {payload}",
+    ]
+    if blame_files is not None:
+        lines.append(f"Files with blame: {blame_files}")
+        lines.append(f"Blame unavailable: {blame_unavailable}")
+    return "\n".join(lines)

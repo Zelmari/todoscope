@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing
+import shutil
 import sys
 import time
 from importlib.metadata import version
@@ -18,6 +19,7 @@ from todoscope.ai import (
     effective_limit,
     payload_characters,
 )
+from todoscope.blame import BlameError, blame_for_file
 from todoscope.config import ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
@@ -83,6 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("text", "json"),
         default="text",
         help="output format (default: text)",
+    )
+    parser.add_argument(
+        "--blame",
+        action="store_true",
+        help="show who authored each finding via git blame",
     )
     return parser
 
@@ -204,6 +211,17 @@ def main(
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
+    if args.quiet and args.blame:
+        print("--quiet and --blame cannot be used together.", file=sys.stderr)
+
+    do_blame = args.blame and not args.quiet
+    if do_blame:
+        if not (root / ".git").exists():
+            print("Error: --blame requires a Git repository.", file=sys.stderr)
+            return 2
+        if shutil.which("git") is None:
+            print("Error: --blame requires the git executable.", file=sys.stderr)
+            return 2
 
     eligibility = ai_eligibility(
         config,
@@ -245,9 +263,28 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
+    blames: dict[str, dict[int, object]] | None = None
+    blame_missing = 0
+    if do_blame:
+        blames = {}
+        paths = sorted({indexed.finding.path for indexed in findings})
+        for rel_path in paths:
+            try:
+                blames[rel_path] = blame_for_file(root / rel_path)
+            except BlameError:
+                blame_missing += 1
+
     if args.verbose:
         gitignore = root / ".gitignore"
         gitignore_path = gitignore if gitignore.is_file() else None
+        blame_kwargs = (
+            {
+                "blame_files": len(blames),
+                "blame_unavailable": blame_missing,
+            }
+            if blames is not None
+            else {}
+        )
         print(
             verbose_report(
                 args.path,
@@ -258,6 +295,7 @@ def main(
                 gitignore_path,
                 secondary_key_configured=keys.secondary is not None,
                 ai_payload_characters=ai_payload_chars,
+                **blame_kwargs,
             ),
             file=sys.stderr,
         )
@@ -273,6 +311,7 @@ def main(
             config,
             skip_line,
             ai_result,
+            blames,
         )
 
     if args.format == "json":
@@ -289,6 +328,7 @@ def main(
             ai_result,
             ai_status,
             ai_reason,
+            blames,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0
