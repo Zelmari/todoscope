@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from todoscope.ai import AnalysisResult
+from todoscope.blame import BlameInfo
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
 from todoscope.scan import IndexedFinding
@@ -100,7 +101,7 @@ def standard_report(
     config: Config,
     ai_skip_line: str | None,
     ai_result: AnalysisResult | None = None,
-    blames: dict[str, dict[int, object]] | None = None,
+    blames: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -151,7 +152,7 @@ def json_report(
     ai_result: AnalysisResult | None = None,
     ai_status: str | None = None,
     ai_reason: str | None = None,
-    blames: dict[str, dict[int, object]] | None = None,
+    blames: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 

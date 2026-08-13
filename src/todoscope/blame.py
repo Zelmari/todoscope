@@ -95,19 +95,27 @@ def blame_for_file(
     *,
     timeout: float = BLAME_TIMEOUT_SECONDS,
     git: str = "git",
+    repo_root: Path | None = None,
 ) -> dict[int, BlameInfo]:
-    """Blame one file with a single porcelain subprocess call."""
+    """Blame one file with a single porcelain subprocess call.
+
+    ``repo_root`` (the discovered project root) is preferred as the working
+    directory so the path passed to git stays repository-root-relative,
+    which behaves correctly across submodules and worktrees.
+    """
+    cwd = repo_root if repo_root is not None else path.parent
+    arg = path.relative_to(cwd).as_posix() if repo_root is not None else path.name
     try:
         completed = subprocess.run(
-            [git, "blame", "--porcelain", "--", path.name],
-            cwd=path.parent,
+            [git, "blame", "--porcelain", "--", arg],
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-        raise BlameError(f"blame failed for {path.name}") from exc
+        raise BlameError(f"blame failed for {arg}") from exc
     if completed.returncode != 0:
-        raise BlameError(f"blame failed for {path.name}: {completed.stderr.strip()}")
+        raise BlameError(f"blame failed for {arg}: {completed.stderr.strip()}")
     return parse_porcelain(completed.stdout)

@@ -270,7 +270,7 @@ def main(
         paths = sorted({indexed.finding.path for indexed in findings})
         for rel_path in paths:
             try:
-                blames[rel_path] = blame_for_file(root / rel_path)
+                blames[rel_path] = blame_for_file(root / rel_path, repo_root=root)
             except BlameError:
                 blame_missing += 1
 

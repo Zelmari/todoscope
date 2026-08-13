@@ -48,10 +48,11 @@ def machine_spec() -> str:
         ram = f"{page * pages / 1024**3:.1f} GiB"
     except (ImportError, ValueError, OSError):
         ram = "unknown"
+    processor = platform.processor() or platform.machine()
     return "\n".join(
         [
             f"platform: {platform.platform()}",
-            f"processor: {platform.processor() or 'unknown'}",
+            f"processor: {processor}",
             f"cpu_count: {__import__('os').cpu_count()}",
             f"ram: {ram}",
             f"python: {platform.python_version()}",

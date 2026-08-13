@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.2 (2026-08-13)
+
+### Changed
+
+- True bounded pool submission: at most 2x workers chunks are in flight at
+  once (windowed submission replaces eager chunk queueing).
+- Blame invokes git from the project root with a repository-root-relative
+  path (correct across submodules and worktrees).
+- Benchmark trees enable all ten languages (earlier trees silently skipped
+  the five non-default ones); committed docs/BENCHMARKS.md with the
+  measured tables, methodology, and decisions.
+
+
 ## 0.9.1 (2026-08-13)
 
 ### Fixed

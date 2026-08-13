@@ -145,6 +145,12 @@ def generate(
         if gitignore.parent.exists():
             gitignore.write_text("*.tmp\n", encoding="utf-8")
 
+    config = (
+        '{\n  "extensions": [".py", ".js", ".jsx", ".ts", ".tsx", ".rs", '
+        '".java", ".go", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".cs"]\n}\n'
+    )
+    (out_dir / ".todoscope.json").write_text(config, encoding="utf-8")
+
     total = sum(p.stat().st_size for p in out_dir.rglob("*") if p.is_file())
     print(f"generated {files} files, {total / 1024 / 1024:.1f} MiB in {out_dir}")
 

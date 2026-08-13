@@ -13,7 +13,9 @@ uv run python benchmarks/gen_tree.py --name few-large --files 8 --fixed-size 200
 ```
 
 Trees land in `benchmarks/.trees/<name>/` (gitignored, on real disk — never
-generate into /tmp, tmpfs would fake the numbers).
+generate into /tmp, tmpfs would fake the numbers). Every generated tree
+carries a `.todoscope.json` enabling all ten supported languages, so
+discovery actually parses the whole tree.
 
 ## Running
 

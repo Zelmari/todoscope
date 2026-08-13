@@ -135,6 +135,55 @@ def test_failed_chunks_retry_serially_without_losing_findings(
     assert len(result) == len(serial) == 16
 
 
+def test_submission_window_is_bounded(tmp_path, monkeypatch) -> None:
+    import threading
+    import time
+    from concurrent.futures import Future
+
+    build_tree(tmp_path, dirs=2, files=8)
+    files = files_of(tmp_path)
+    config = load_config(tmp_path)
+
+    class WindowPool:
+        def __init__(self, **kwargs):
+            self.inflight = 0
+            self.max_inflight = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def submit(self, fn, *args):
+            self.inflight += 1
+            self.max_inflight = max(self.max_inflight, self.inflight)
+            future = Future()
+
+            def run():
+                time.sleep(0.01)
+                try:
+                    future.set_result(fn(*args))
+                except BaseException as exc:  # noqa: BLE001
+                    future.set_exception(exc)
+
+            def done(_):
+                self.inflight -= 1
+
+            future.add_done_callback(done)
+            threading.Thread(target=run, daemon=True).start()
+            return future
+
+    pool = WindowPool()
+    monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", lambda **kw: pool)
+    result = scan_files(
+        files, tmp_path, config, parallel=True, max_workers=2, chunk_size=1
+    )
+    serial = scan_files(files, tmp_path, config, parallel=False)
+    assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
+    assert pool.max_inflight <= 4  # 2 x workers
+
+
 def test_worker_count_caps(monkeypatch) -> None:
     monkeypatch.setattr("todoscope.scan.os.cpu_count", lambda: 64)
     assert _worker_count() == MAX_PARALLEL_WORKERS
