@@ -32,6 +32,11 @@ class Language(Enum):
     TYPESCRIPT = "typescript"
     TSX = "tsx"
     RUST = "rust"
+    JAVA = "java"
+    GO = "go"
+    C = "c"
+    CPP = "cpp"
+    CSHARP = "csharp"
 
 
 @dataclass(frozen=True, slots=True)

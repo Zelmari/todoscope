@@ -25,6 +25,15 @@ EXTENSION_LANGUAGES: dict[str, Language] = {
     ".ts": Language.TYPESCRIPT,
     ".tsx": Language.TSX,
     ".rs": Language.RUST,
+    ".java": Language.JAVA,
+    ".go": Language.GO,
+    ".c": Language.C,
+    ".h": Language.C,
+    ".cpp": Language.CPP,
+    ".cc": Language.CPP,
+    ".cxx": Language.CPP,
+    ".hpp": Language.CPP,
+    ".cs": Language.CSHARP,
 }
 
 _MARKER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\Z")

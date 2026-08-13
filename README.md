@@ -10,8 +10,11 @@ todoscope src/
 
 ## What it does
 
-- Scans Python, JavaScript, TypeScript, JSX/TSX, and Rust files for comments
-  that start with your markers (`TODO` by default).
+- Scans Python, JavaScript, TypeScript, JSX/TSX, Rust, Java, Go, C, C++,
+  and C# files for comments that start with your markers (`TODO` by
+  default). The default enabled set is `.py .js .jsx .ts .tsx .rs`; enable
+  more extensions (`.java .go .c .h .cpp .cc .cxx .hpp .cs`) through
+  `extensions` in `.todoscope.json`.
 - Only real comments count: `TODO` inside strings, template literals, JSX
   text, or raw strings is ignored.
 - Respects every `.gitignore` in the tree (root and nested, with git's

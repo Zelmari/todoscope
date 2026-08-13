@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 (2026-08-13)
+
+### Added
+
+- Support for Java, Go, C, C++, and C# (.java .go .c .h .cpp .cc .cxx .hpp
+  .cs). Grammar-aware extraction correctly ignores strings, char literals,
+  Java text blocks, Go raw strings, C preprocessor lines, C++ raw strings,
+  and C# verbatim/interpolated verbatim strings. Default scanned extensions
+  are unchanged; enable the new ones via `extensions` in `.todoscope.json`.
+
+
 ## 0.5.0 (2026-08-13)
 
 ### Added

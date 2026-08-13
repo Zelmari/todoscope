@@ -1,6 +1,6 @@
 [project]
 name = "todoscope"
-version = "0.5.0"
+version = "0.6.0"
 description = "Find maintenance comments in source code and optionally interpret them with AI, without ever sending source code."
 readme = "README.md"
 license = "MIT"

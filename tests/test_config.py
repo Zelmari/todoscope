@@ -128,7 +128,7 @@ def test_extensions_not_a_list_is_an_error(tmp_path) -> None:
 
 
 def test_unsupported_extension_is_an_error(tmp_path) -> None:
-    write(tmp_path / ".todoscope.json", '{"extensions": [".java"]}')
+    write(tmp_path / ".todoscope.json", '{"extensions": [".rb"]}')
     with pytest.raises(ConfigError, match="no supported parser"):
         load_config(tmp_path)
 
