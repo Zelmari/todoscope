@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.3 (2026-08-13)
+
+### Changed
+
+- Engine constants are now sweep-derived: the pool gate stays at 500 files
+  (measured crossover), the 2 MB byte floor is removed (pools win even for
+  100-byte files at qualifying counts), and the submission chunk size drops
+  from 200 to 50 (sweep-measured). docs/BENCHMARKS.md carries the sweep
+  tables behind every constant.
+
+
 ## 0.9.2 (2026-08-13)
 
 ### Changed

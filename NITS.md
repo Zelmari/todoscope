@@ -46,19 +46,11 @@ where, and why it matters, so it can be resolved deliberately later.
 
 ## 5. Engine constants are not fully derivable from BENCHMARKS.md
 
-- Where: `src/todoscope/scan.py` constants
-  (`PARALLEL_MIN_FILES=500`, `PARALLEL_SIZE_THRESHOLD=2MB`,
-  `MAX_PARALLEL_WORKERS=8`, `SUBMIT_CHUNK_SIZE=200`) and
-  `docs/BENCHMARKS.md`.
-- What: only the 8-worker cap is directly visible in the tables (clear
-  plateau). The 500-file floor is bracket-measured (50 loses / 2000 wins)
-  but the exact value is a judgment midpoint. The 2MB byte floor was never
-  measured as a crossover, and few-large losing in the pool suggests bytes
-  are not even the deciding axis. Chunk size 200 has no experimental basis.
-  The 30s blame timeout is a safety constant, not a perf constant.
-- Fix: sweep benchmarks on the existing trees — file-count crossover
-  (100/250/500/1000/1500), chunk sizes (50/100/200/500 on many-small), and
-  a byte-floor sweep — then either update the constants or reword
-  BENCHMARKS.md to claim only what was measured, with judgment choices
-  labelled as such. Add a one-line rationale for the blame timeout.
-- Status: deferred.
+- Status: **RESOLVED (2026-08-13, 0.9.3)** — sweep benchmarks
+  (`benchmarks/sweep.py`) measured the file-count crossover (100/250/500/
+  750/1000/1500/2000), a byte-size sweep, and chunk sizes
+  (50/100/200/500/1000). Constants updated from the data: 500 confirmed as
+  the first clear pool win; the 2 MB byte floor removed (pool wins even for
+  100-byte files at qualifying counts); chunk size changed 200 -> 50.
+  `docs/BENCHMARKS.md` now contains the sweep tables behind every
+  constant.

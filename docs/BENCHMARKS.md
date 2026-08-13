@@ -43,15 +43,59 @@ Measured engine performance and the decisions derived from it.
 
 ## Decisions derived
 
-- `MAX_PARALLEL_WORKERS = 8` — plateau point; 16 buys ≤15% more on some
-  workloads and costs an extra runtime per worker.
-- `PARALLEL_MIN_FILES = 500` — crossover measured between 50 (serial wins)
-  and 2000 files (pool wins 3.5x); 500 is a conservative midpoint.
-- `PARALLEL_SIZE_THRESHOLD = 2 MB` — floor so trivially small trees never
-  pay process startup.
-- `SUBMIT_CHUNK_SIZE = 200` — bounds per-submission payloads; the pool
-  keeps at most `2 x workers` chunks in flight (windowed submission).
-- Parse-time crash resilience: unfinished chunks retry serially.
+Every engine constant is sweep-derived; the sweep data lives in
+`benchmarks/.results/sweep-*.csv` and can be regenerated with
+`uv run python benchmarks/sweep.py --kind {crossover,bytefloor,chunks}`.
+
+### `PARALLEL_MIN_FILES = 500` — file-count crossover sweep
+
+| Files | Serial | 8 workers | Speedup |
+|---:|---:|---:|---:|
+| 100 | 0.036 s | 0.054 s | 0.66x |
+| 250 | 0.087 s | 0.085 s | 1.03x |
+| 500 | **0.178 s** | **0.109 s** | **1.63x** |
+| 750 | 0.292 s | 0.130 s | 2.25x |
+| 1000 | 0.389 s | 0.143 s | 2.73x |
+| 1500 | 0.588 s | 0.180 s | 3.28x |
+| 2000 | 0.800 s | 0.262 s | 3.05x |
+
+The pool loses at 100 files, breaks even at 250, and first clearly wins at
+500 — which is why 500 is the gate.
+
+### No byte floor — byte-size sweep
+
+| Total size (1000 files) | Serial | 8 workers | Speedup |
+|---:|---:|---:|---:|
+| 0.10 MiB (100 B files) | 0.055 s | 0.023 s | 2.33x |
+| 0.48 MiB | 0.117 s | 0.047 s | 2.47x |
+| 1.91 MiB | 0.351 s | 0.129 s | 2.72x |
+| 9.54 MiB | 1.582 s | 0.709 s | 2.23x |
+
+Once the file count qualifies, the pool wins even for tiny files (and the
+corner case 500 x 100 B still wins 1.28x). A total-byte threshold adds
+nothing, so there is none.
+
+### `SUBMIT_CHUNK_SIZE = 50` — chunk-size sweep (2000-file monorepo, 8 workers)
+
+| Chunk | 50 | 100 | 200 | 500 | 1000 |
+|---:|---:|---:|---:|---:|---:|
+| Median | **0.193 s** | 0.216 s | 0.241 s | 0.337 s | 0.563 s |
+
+Smaller chunks win (better load balancing, smaller IPC bursts); 50 is the
+sweep's best measured value.
+
+### `MAX_PARALLEL_WORKERS = 8` — workload plateau (main tables above)
+
+many-small/monorepo plateau between 8 and 16 workers (16 buys at most 15%
+on some workloads, 32 is flat or slower), and each worker costs a Python
+runtime plus parser libraries.
+
+### Not derivable from pools: the few-large counterexample
+
+8 files of 2 MB each are FASTER serially than in any pool (0.55 s vs
+0.57-0.59 s): each file produces ~33k findings and serialising those lists
+across IPC costs more than the parallel parse saves. The count gate handles
+this case automatically (8 files is far below 500).
 
 ## Running it yourself
 

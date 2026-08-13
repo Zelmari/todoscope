@@ -30,29 +30,23 @@ from todoscope.discovery import (
 )
 from todoscope.extraction import Finding, findings_for_file
 
-PARALLEL_SIZE_THRESHOLD = 2_000_000
-"""Total file bytes above which extraction may use a process pool.
-
-Measured (2026-08-13, 32-core machine, all ten languages, warm cache; see
-docs/BENCHMARKS.md): tiny (50 files) serial wins; monorepo (2k files,
-~4 MiB) parallel 3.5x; many-small (5k files, ~11 MiB) 3.4x; few-large
-(8 x 2 MB) parallel LOSES because chunk results with ~33k findings per file
-dominate the IPC cost.
-"""
-
 PARALLEL_MIN_FILES = 500
-"""File-count floor for the pool: few big files (few-large) hurt in a pool,
-many small ones win; the measured crossover sits between 50 and 2000 files,
-so 500 is a conservative midpoint."""
+"""Pool gate: the first file count at which the pool clearly wins.
+
+Sweep-measured (docs/BENCHMARKS.md): 100 files lose (0.66x), 250 break
+even (1.03x), 500 win 1.63x and improve monotonically after. A total-byte
+floor proved unnecessary: at qualifying file counts the pool wins even for
+100-byte files (1.28x at 500 x 100B, 2.33x at 1000 x 100B).
+"""
 
 MAX_PARALLEL_WORKERS = 8
 """Hard cap: benchmark plateau at 8 workers (16 buys <=15% on some
 workloads, 32 is flat or slower), and each worker holds a Python runtime
 plus parser libraries."""
 
-SUBMIT_CHUNK_SIZE = 200
-"""Files per chunk; at most 2 x workers chunks are in flight at once
-(windowed submission, strictly bounded queue)."""
+SUBMIT_CHUNK_SIZE = 50
+"""Files per chunk; sweep-measured (50 > 100 ~ 200 >> 500 >> 1000 on the
+monorepo workload) with at most 2 x workers chunks in flight at once."""
 
 
 def _extract_chunk_worker(
@@ -70,16 +64,6 @@ def _worker_count() -> int:
     """Pool size: never more than the machine's CPUs, capped at 8."""
     cpus = os.cpu_count() or 1
     return max(1, min(MAX_PARALLEL_WORKERS, cpus))
-
-
-def _total_bytes(files: tuple[Path, ...]) -> int:
-    total = 0
-    for path in files:
-        try:
-            total += path.stat().st_size
-        except OSError:
-            continue
-    return total
 
 
 def _extract_serial(
@@ -183,21 +167,17 @@ def scan_files(
     *,
     max_workers: int | None = None,
     parallel: bool | None = None,
-    size_threshold: int = PARALLEL_SIZE_THRESHOLD,
     chunk_size: int = SUBMIT_CHUNK_SIZE,
 ) -> tuple[IndexedFinding, ...]:
     """Extract findings from permitted files, sort them, and assign IDs.
 
-    ``parallel`` may force or forbid the process pool; by default it is used
-    only when the file count reaches PARALLEL_MIN_FILES and the total size
-    reaches ``size_threshold`` (benchmark data: few big files lose in a
-    pool, many small ones win). Crashed chunks retry serially so findings
-    are never lost.
+    ``parallel`` may force or forbid the process pool; by default it is
+    used when the file count reaches PARALLEL_MIN_FILES (sweep-derived
+    crossover; total bytes proved irrelevant once the count qualifies).
+    Crashed chunks retry serially so findings are never lost.
     """
     if parallel is None:
-        parallel = (
-            len(files) >= PARALLEL_MIN_FILES and _total_bytes(files) >= size_threshold
-        )
+        parallel = len(files) >= PARALLEL_MIN_FILES
 
     if parallel:
         workers = max_workers if max_workers is not None else _worker_count()

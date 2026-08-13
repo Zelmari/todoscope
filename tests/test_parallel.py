@@ -36,11 +36,10 @@ def test_serial_and_parallel_are_identical(tmp_path) -> None:
     assert [i.id for i in serial] == list(range(1, len(serial) + 1))
 
 
-def test_parallel_default_uses_threshold_and_file_count(tmp_path, monkeypatch) -> None:
+def test_parallel_default_uses_file_count_gate(tmp_path, monkeypatch) -> None:
     build_tree(tmp_path)
     files = files_of(tmp_path)
     config = load_config(tmp_path)
-    total = sum(p.stat().st_size for p in files)
 
     pool_used: list[int] = []
     real_executor = __import__(
@@ -54,13 +53,11 @@ def test_parallel_default_uses_threshold_and_file_count(tmp_path, monkeypatch) -
 
     monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", SpyExecutor)
     monkeypatch.setattr("todoscope.scan.PARALLEL_MIN_FILES", 10)
-    scan_files(files, tmp_path, config, size_threshold=total + 1)
-    assert pool_used == []
-    scan_files(files, tmp_path, config, size_threshold=total - 1)
+    scan_files(files, tmp_path, config)
     assert pool_used == [_worker_count()]
     monkeypatch.setattr("todoscope.scan.PARALLEL_MIN_FILES", len(files) + 1)
     pool_used.clear()
-    scan_files(files, tmp_path, config, size_threshold=total - 1)
+    scan_files(files, tmp_path, config)
     assert pool_used == []
 
 
