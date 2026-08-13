@@ -1,0 +1,26 @@
+# Example: run TodoScope on every pull request and upload the JSON report.
+# Todoscope never fails the run because of findings (they are not errors),
+# so this workflow is purely informational.
+name: TodoScope scan
+
+on:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+      - name: Install todoscope
+        run: uv tool install todoscope
+      - name: Scan and produce JSON
+        run: uvx todoscope . --format json > todoscope-report.json
+      - name: Show findings in the log
+        run: uvx todoscope . --quiet
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: todoscope-report
+          path: todoscope-report.json

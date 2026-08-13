@@ -1,0 +1,14 @@
+# Minimal example: print one line per finding in the job log.
+# `--quiet` skips AI, headings, and summaries; exits 0 even with findings.
+name: TodoScope log
+
+on:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10
+      - run: uvx todoscope . --quiet

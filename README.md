@@ -134,6 +134,23 @@ comments**, because comment text may be sent to the AI.
 - `2` — bad path/usage, or an ignored target refused in non-interactive mode
 - `3` — configuration error
 
+## Use in CI
+
+TodoScope is CI-friendly: finding TODOs is **not** an error, so scans never
+fail a pipeline just because comments exist. Common patterns:
+
+- Log findings: `todoscope . --quiet` (one line per finding).
+- Machine-readable reports: `todoscope . --format json` and upload or parse
+  the JSON in later steps.
+- AI in CI: set `TODOSCOPE_API_KEY` as a repository secret and a `model` in
+  `.todoscope.json`; non-interactive runs skip the secondary key safely.
+
+Ready-made examples live in [`examples/ci/`](examples/ci/):
+
+- `scan-pr.yml` — scan on pull requests, print findings, upload the JSON
+  report as an artifact.
+- `scan-quiet.yml` — minimal log-only variant.
+
 ## Development
 
 ```bash

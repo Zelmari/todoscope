@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 (2026-08-13)
+
+### Added
+
+- GitHub Actions integration guide: CI usage section in the README and
+  ready-made example workflows in examples/ci (JSON artifact upload and a
+  log-only variant). Findings never fail CI runs.
+
+
 ## 0.6.0 (2026-08-13)
 
 ### Added
