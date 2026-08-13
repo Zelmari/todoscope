@@ -1,8 +1,10 @@
-"""Report formatting (MS-6/8): standard, quiet, verbose, and AI-merged output."""
+"""Report formatting (MS-6/8/12): standard, quiet, verbose, AI-merged, JSON."""
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 from todoscope.ai import AnalysisResult
 from todoscope.config import Config
@@ -128,6 +130,70 @@ def quiet_report(findings: tuple[IndexedFinding, ...]) -> str:
         suffix = f": {finding.text}" if finding.text else ""
         lines.append(f"{finding.path}:{finding.line}: {finding.marker}{suffix}")
     return "\n".join(lines)
+
+
+def json_report(
+    findings: tuple[IndexedFinding, ...],
+    files_scanned: int,
+    target: str,
+    project_root: Path,
+    config: Config,
+    stats: ScanStats,
+    ai_result: AnalysisResult | None = None,
+    ai_status: str | None = None,
+    ai_reason: str | None = None,
+) -> dict[str, Any]:
+    """Deterministic JSON report for agents (Overarching 31, MS-12).
+
+    Never contains API keys or environment values.
+    """
+    ai_section: dict[str, Any] | None = None
+    if ai_result is not None:
+        ai_section = {
+            "status": "completed",
+            "items": [
+                {
+                    "id": item.id,
+                    "interpretation": item.interpretation,
+                    "priority": item.priority,
+                }
+                for item in ai_result.items
+            ],
+            "overview": ai_result.overview,
+            "disclaimer": list(DISCLAIMER_LINES),
+        }
+    elif ai_status is not None:
+        ai_section = {"status": ai_status}
+        if ai_reason is not None:
+            ai_section["reason"] = ai_reason
+
+    return {
+        "tool": "todoscope",
+        "version": version("todoscope"),
+        "target": target,
+        "project_root": str(project_root),
+        "files_scanned": files_scanned,
+        "markers": list(config.markers),
+        "findings_count": len(findings),
+        "findings": [
+            {
+                "id": indexed.id,
+                "marker": indexed.finding.marker,
+                "text": indexed.finding.text,
+                "path": indexed.finding.path,
+                "line": indexed.finding.line,
+            }
+            for indexed in findings
+        ],
+        "skipped": {
+            "ignored_by_gitignore": stats.ignored_by_gitignore,
+            "ignored_by_config": stats.ignored_by_config,
+            "unsupported": stats.unsupported,
+            "unreadable": stats.unreadable,
+            "symlinks": stats.symlinks,
+        },
+        "ai": ai_section,
+    }
 
 
 def verbose_report(

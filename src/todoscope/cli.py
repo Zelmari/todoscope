@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from importlib.metadata import version
@@ -33,6 +34,7 @@ from todoscope.report import (
     AI_SKIPPED_REQUEST_FAILED,
     AI_SKIPPED_SECONDARY_FAILED,
     AI_SKIPPED_UNSAFE_ENV,
+    json_report,
     payload_too_large_message,
     quiet_report,
     standard_report,
@@ -74,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose",
         action="store_true",
         help="print extra scan details to standard error",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="output format (default: text)",
     )
     return parser
 
@@ -126,6 +134,23 @@ def _outcome_skip_line(kind: AiOutcomeKind) -> str:
     if kind is AiOutcomeKind.SECONDARY_FAILED:
         return AI_SKIPPED_SECONDARY_FAILED
     return AI_SKIPPED_REQUEST_FAILED
+
+
+def _json_ai_state(
+    reason: AiSkipReason,
+    outcome_kind: AiOutcomeKind | None,
+    ai_result,
+) -> tuple[str | None, str | None]:
+    """Map AI outcome to JSON status/reason, never exposing keys."""
+    if ai_result is not None:
+        return None, None
+    if outcome_kind is not None:
+        if outcome_kind is AiOutcomeKind.SUCCESS:
+            return None, None
+        return "failed", outcome_kind.value
+    if reason is AiSkipReason.ELIGIBLE:
+        return None, None
+    return "skipped", reason.value
 
 
 def main(
@@ -199,6 +224,7 @@ def main(
 
     ai_result = None
     ai_failure_line: str | None = None
+    outcome_kind: AiOutcomeKind | None = None
     if eligibility.reason is AiSkipReason.ELIGIBLE:
         if status is None:
             status = StatusContext
@@ -212,6 +238,7 @@ def main(
             confirm_secondary=confirm_secondary,
             status=status,
         )
+        outcome_kind = outcome.kind
         if outcome.kind is AiOutcomeKind.SUCCESS:
             ai_result = outcome.result
         else:
@@ -246,6 +273,25 @@ def main(
             skip_line,
             ai_result,
         )
+
+    if args.format == "json":
+        ai_status, ai_reason = _json_ai_state(
+            eligibility.reason, outcome_kind, ai_result
+        )
+        data = json_report(
+            findings,
+            stats.scanned,
+            args.path,
+            root,
+            config,
+            stats,
+            ai_result,
+            ai_status,
+            ai_reason,
+        )
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+
     print(report)
     return 0
 

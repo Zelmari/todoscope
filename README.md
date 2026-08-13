@@ -40,9 +40,15 @@ todoscope .                   # scan the whole project
 todoscope src/ --no-ai        # normal report, skip AI
 todoscope src/ --quiet        # one line per finding, no headings, no AI
 todoscope src/ --verbose      # extra details on stderr
+todoscope src/ --format json  # machine-readable JSON report on stdout
 ```
 
 That's it. Findings are sorted by folder depth, then path, then line.
+
+`--format json` prints a deterministic JSON document to stdout (scan
+metadata, findings, skipped counts, and the AI section with a machine-
+readable status/reason). Verbose details and errors always go to stderr.
+JSON never contains API keys or environment values.
 
 ## Configuration
 

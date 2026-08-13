@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 (2026-08-13)
+
+### Added
+
+- `--format json`: deterministic machine-readable report on stdout (scan
+  metadata, findings, skipped counts, AI status with machine-readable
+  reason). Never contains API keys or environment values.
+
+
 ## 0.2.0 (2026-08-13)
 
 ### Added
