@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2 (2026-08-13)
+
+### Fixed
+
+- Parallel engine hardening: chunked pool submission (backpressure on huge
+  repositories), serial fallback when a worker process crashes, and a
+  worker cap that respects the machine's CPU count.
+- Windows support: multiprocessing freeze_support in the entry point and a
+  windows-latest CI job verifying the spawn-based pool end to end.
+- README releasing example now uses a placeholder tag.
+
+
 ## 0.8.1 (2026-08-13)
 
 ### Fixed

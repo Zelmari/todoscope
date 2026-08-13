@@ -2,13 +2,18 @@
 
 Extraction runs in a process pool only when the workload is large enough to
 beat process startup overhead (benchmarked: threads do not help; processes
-scale ~2.4x on multi-megabyte workloads). Results are order-independent and
-sorted after collection, so determinism is preserved.
+scale ~2.4x on multi-megabyte workloads). Files are submitted in bounded
+chunks so huge repositories never queue everything at once, and a crashed
+pool (BrokenProcessPool) falls back to serial extraction so a scan never
+loses findings. Results are order-independent and sorted after collection,
+so determinism is preserved.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,13 +29,28 @@ PARALLEL_SIZE_THRESHOLD = 2_000_000
 """Total file bytes above which extraction uses a process pool."""
 
 MAX_PARALLEL_WORKERS = 8
+"""Hard cap: parsing saturates well below a workstation's core count, and
+each worker holds a Python runtime plus parser libraries."""
+
+SUBMIT_CHUNK_SIZE = 200
+"""Files submitted to the pool per chunk (backpressure on huge repos)."""
 
 
-def _extract_worker(
-    path: str, project_root: str, markers: tuple[str, ...]
+def _extract_chunk_worker(
+    paths: list[str], project_root: str, markers: tuple[str, ...]
 ) -> list[Finding]:
-    """Module-level pool worker (picklable on every platform)."""
-    return findings_for_file(Path(path), Path(project_root), markers)
+    """Module-level chunk worker (picklable on every platform)."""
+    root = Path(project_root)
+    findings: list[Finding] = []
+    for path in paths:
+        findings.extend(findings_for_file(Path(path), root, markers))
+    return findings
+
+
+def _worker_count() -> int:
+    """Pool size: never more than the machine's CPUs, capped at 8."""
+    cpus = os.cpu_count() or 1
+    return max(1, min(MAX_PARALLEL_WORKERS, cpus))
 
 
 def _total_bytes(files: tuple[Path, ...]) -> int:
@@ -41,6 +61,41 @@ def _total_bytes(files: tuple[Path, ...]) -> int:
         except OSError:
             continue
     return total
+
+
+def _extract_serial(
+    files: tuple[Path, ...], project_root: Path, config: Config
+) -> list[Finding]:
+    return [
+        finding
+        for path in files
+        for finding in findings_for_file(path, project_root, config.markers)
+    ]
+
+
+def _extract_parallel(
+    files: tuple[Path, ...],
+    project_root: Path,
+    config: Config,
+    workers: int,
+    chunk_size: int,
+) -> list[Finding]:
+    """Chunked pool extraction, results reassembled in input order."""
+    chunks = [
+        [str(p) for p in files[i : i + chunk_size]]
+        for i in range(0, len(files), chunk_size)
+    ]
+    results: list[list[Finding] | None] = [None] * len(chunks)
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(
+                _extract_chunk_worker, chunk, str(project_root), config.markers
+            ): index
+            for index, chunk in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    return [finding for chunk in results if chunk for finding in chunk]
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,33 +119,32 @@ def scan_files(
     project_root: Path,
     config: Config,
     *,
-    max_workers: int = MAX_PARALLEL_WORKERS,
+    max_workers: int | None = None,
     parallel: bool | None = None,
     size_threshold: int = PARALLEL_SIZE_THRESHOLD,
+    chunk_size: int = SUBMIT_CHUNK_SIZE,
 ) -> tuple[IndexedFinding, ...]:
     """Extract findings from permitted files, sort them, and assign IDs.
 
     ``parallel`` may force or forbid the process pool; by default it is used
     only when more than one file and at least ``size_threshold`` total bytes
-    are involved (process startup otherwise costs more than it saves).
+    are involved (process startup otherwise costs more than it saves). A
+    crashed pool falls back to serial extraction rather than losing
+    findings.
     """
     if parallel is None:
         parallel = len(files) > 1 and _total_bytes(files) >= size_threshold
 
     if parallel:
-        roots = (str(project_root),) * len(files)
-        marker_sets = (config.markers,) * len(files)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            batches = executor.map(
-                _extract_worker, (str(p) for p in files), roots, marker_sets
+        workers = max_workers if max_workers is not None else _worker_count()
+        try:
+            extracted = _extract_parallel(
+                files, project_root, config, workers, chunk_size
             )
-        extracted = [finding for batch in batches for finding in batch]
+        except BrokenProcessPool:
+            extracted = _extract_serial(files, project_root, config)
     else:
-        extracted = [
-            finding
-            for path in files
-            for finding in findings_for_file(path, project_root, config.markers)
-        ]
+        extracted = _extract_serial(files, project_root, config)
 
     ordered = sort_findings(extracted)
     return tuple(

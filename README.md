@@ -181,7 +181,7 @@ request (Python 3.12 and 3.13).
 3. Commit, then tag and push the tag:
 
 ```bash
-git tag v0.2.0
+git tag vX.Y.Z          # e.g. git tag v0.8.2
 git push
 git push --tags
 ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import sys
 import time
 from importlib.metadata import version
@@ -298,4 +299,5 @@ def main(
 
 def entrypoint() -> None:
     """Console entry point: convert main's exit code into process status."""
+    multiprocessing.freeze_support()
     raise SystemExit(main())
