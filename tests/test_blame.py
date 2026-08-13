@@ -36,6 +36,26 @@ def test_parse_porcelain_empty() -> None:
     assert parse_porcelain("") == {}
 
 
+SAME_COMMIT_HUNKS = """\
+abc123def4567890abcdef0123456789abcdef01 1 1 16
+author Alice
+author-time 1750000000
+filename a.py
+	line one
+	line two
+abc123def4567890abcdef0123456789abcdef01 3 3
+	line three (same commit, no repeated attributes)
+"""
+
+
+def test_parse_porcelain_carries_attributes_across_hunks() -> None:
+    result = parse_porcelain(SAME_COMMIT_HUNKS)
+    assert result[1].author == "Alice"
+    assert result[2].author == "Alice"
+    assert result[3].author == "Alice"
+    assert result[3].date == "2025-06-15"
+
+
 def _make_repo(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

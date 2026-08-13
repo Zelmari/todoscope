@@ -38,44 +38,54 @@ class BlameInfo:
 
 
 def parse_porcelain(text: str) -> dict[int, BlameInfo]:
-    """Parse ``git blame --porcelain`` output into line -> BlameInfo."""
+    """Parse ``git blame --porcelain`` output into line -> BlameInfo.
+
+    Attributes (author, author-time) belong to a commit and are repeated in
+    the output only when the commit changes; later hunks of the same commit
+    carry them forward.
+    """
     lines = text.splitlines()
     result: dict[int, BlameInfo] = {}
-    current: dict[str, str] | None = None
+    attrs: dict[str, str] = {}
+    last_commit: str | None = None
     current_start = 0
     current_count = 0
+    has_group = False
 
     def finish() -> None:
-        nonlocal current
-        if current is None:
+        nonlocal has_group
+        if not has_group:
             return
         info = BlameInfo(
-            commit=current.get("commit", ""),
-            author=current.get("author", ""),
-            date=current.get("date", ""),
+            commit=attrs.get("commit", ""),
+            author=attrs.get("author", ""),
+            date=attrs.get("date", ""),
         )
         for line in range(current_start, current_start + current_count):
             result[line] = info
-        current = None
+        has_group = False
 
     for raw in lines:
         if _HEADER_PATTERN.match(raw):
             finish()
             parts = raw.split()
             commit = parts[0]
+            if commit != last_commit:
+                attrs = {"commit": commit}
+                last_commit = commit
             current_start = int(parts[2])
             current_count = int(parts[3]) if len(parts) > 3 else 1
-            current = {"commit": commit}
-        elif current is not None:
+            has_group = True
+        elif has_group:
             key, _, value = raw.partition(" ")
             if key == "author":
-                current["author"] = value
+                attrs["author"] = value
             elif key == "author-time":
                 try:
                     stamp = datetime.fromtimestamp(int(value), tz=UTC)
-                    current["date"] = stamp.strftime("%Y-%m-%d")
+                    attrs["date"] = stamp.strftime("%Y-%m-%d")
                 except (ValueError, OSError):
-                    current["date"] = ""
+                    attrs["date"] = ""
     finish()
     return result
 

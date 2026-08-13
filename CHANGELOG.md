@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1 (2026-08-13)
+
+### Fixed
+
+- `--blame` attribution was empty for lines in later hunks of the same
+  commit: git repeats porcelain group headers without repeating the author
+  attributes, and the parser reset them. Attributes now carry forward.
+
+
 ## 0.9.0 (2026-08-13)
 
 ### Added
