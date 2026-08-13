@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.3 (2026-08-13)
+
+### Changed
+
+- Parallel engine tuned with benchmark data (32-core machine, warm cache):
+  the pool now requires at least 500 files in addition to the 2 MB size
+  floor (few-large workloads lose in a pool — chunk-result serialisation
+  dominates), and the 8-worker cap is confirmed by the plateau at 8.
+- Crashed worker chunks now retry serially on their own instead of falling
+  back for the whole scan.
+- tree-sitter pinned to >=0.25.2,<0.26 after 0.26.0 proved to corrupt the
+  heap with current grammar wheels (canary regression test added).
+- Added the benchmark harness (benchmarks/) used to derive the constants.
+
+
 ## 0.8.2 (2026-08-13)
 
 ### Fixed

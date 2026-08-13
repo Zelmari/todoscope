@@ -26,11 +26,22 @@ from todoscope.discovery import (
 from todoscope.extraction import Finding, findings_for_file
 
 PARALLEL_SIZE_THRESHOLD = 2_000_000
-"""Total file bytes above which extraction uses a process pool."""
+"""Total file bytes above which extraction may use a process pool.
+
+Measured (2026-08-13, 32-core machine, warm cache): tiny (50 files) serial
+wins; monorepo (2k files, ~5 MB) parallel 2.5x; many-small (5k files,
+~10 MB) 3x; few-large (8 x 2 MB) parallel LOSES because chunk results with
+~33k findings per file dominate the IPC cost.
+"""
+
+PARALLEL_MIN_FILES = 500
+"""File-count floor for the pool: few big files (few-large) hurt in a pool,
+many small ones win; the measured crossover sits between 50 and 2000 files,
+so 500 is a conservative midpoint."""
 
 MAX_PARALLEL_WORKERS = 8
-"""Hard cap: parsing saturates well below a workstation's core count, and
-each worker holds a Python runtime plus parser libraries."""
+"""Hard cap: benchmark plateau at 8 workers (16/32 flat or slower), and each
+worker holds a Python runtime plus parser libraries."""
 
 SUBMIT_CHUNK_SIZE = 200
 """Files submitted to the pool per chunk (backpressure on huge repos)."""
@@ -80,21 +91,43 @@ def _extract_parallel(
     workers: int,
     chunk_size: int,
 ) -> list[Finding]:
-    """Chunked pool extraction, results reassembled in input order."""
+    """Chunked pool extraction with per-chunk retry.
+
+    A crashed worker (BrokenProcessPool) fails only the chunks that never
+    finished; those are re-run serially so findings are never lost. Results
+    are reassembled in input order.
+    """
     chunks = [
         [str(p) for p in files[i : i + chunk_size]]
         for i in range(0, len(files), chunk_size)
     ]
     results: list[list[Finding] | None] = [None] * len(chunks)
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                _extract_chunk_worker, chunk, str(project_root), config.markers
-            ): index
-            for index, chunk in enumerate(chunks)
-        }
-        for future in as_completed(futures):
-            results[futures[future]] = future.result()
+
+    try:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _extract_chunk_worker,
+                    chunk,
+                    str(project_root),
+                    config.markers,
+                ): index
+                for index, chunk in enumerate(chunks)
+            }
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    results[index] = future.result()
+                except BrokenProcessPool:
+                    results[index] = None
+    except BrokenProcessPool:
+        pass
+
+    for index, chunk in enumerate(chunks):
+        if results[index] is None:
+            results[index] = _extract_chunk_worker(
+                chunk, str(project_root), config.markers
+            )
     return [finding for chunk in results if chunk for finding in chunk]
 
 
@@ -127,13 +160,15 @@ def scan_files(
     """Extract findings from permitted files, sort them, and assign IDs.
 
     ``parallel`` may force or forbid the process pool; by default it is used
-    only when more than one file and at least ``size_threshold`` total bytes
-    are involved (process startup otherwise costs more than it saves). A
-    crashed pool falls back to serial extraction rather than losing
-    findings.
+    only when the file count reaches PARALLEL_MIN_FILES and the total size
+    reaches ``size_threshold`` (benchmark data: few big files lose in a
+    pool, many small ones win). Crashed chunks retry serially so findings
+    are never lost.
     """
     if parallel is None:
-        parallel = len(files) > 1 and _total_bytes(files) >= size_threshold
+        parallel = (
+            len(files) >= PARALLEL_MIN_FILES and _total_bytes(files) >= size_threshold
+        )
 
     if parallel:
         workers = max_workers if max_workers is not None else _worker_count()

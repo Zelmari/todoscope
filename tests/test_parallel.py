@@ -36,7 +36,7 @@ def test_serial_and_parallel_are_identical(tmp_path) -> None:
     assert [i.id for i in serial] == list(range(1, len(serial) + 1))
 
 
-def test_parallel_default_uses_threshold(tmp_path, monkeypatch) -> None:
+def test_parallel_default_uses_threshold_and_file_count(tmp_path, monkeypatch) -> None:
     build_tree(tmp_path)
     files = files_of(tmp_path)
     config = load_config(tmp_path)
@@ -53,10 +53,15 @@ def test_parallel_default_uses_threshold(tmp_path, monkeypatch) -> None:
             super().__init__(**kwargs)
 
     monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", SpyExecutor)
+    monkeypatch.setattr("todoscope.scan.PARALLEL_MIN_FILES", 10)
     scan_files(files, tmp_path, config, size_threshold=total + 1)
     assert pool_used == []
     scan_files(files, tmp_path, config, size_threshold=total - 1)
     assert pool_used == [_worker_count()]
+    monkeypatch.setattr("todoscope.scan.PARALLEL_MIN_FILES", len(files) + 1)
+    pool_used.clear()
+    scan_files(files, tmp_path, config, size_threshold=total - 1)
+    assert pool_used == []
 
 
 def test_chunked_submission_limits_queue(tmp_path, monkeypatch) -> None:
@@ -93,6 +98,41 @@ def test_broken_pool_falls_back_to_serial(tmp_path, monkeypatch) -> None:
     result = scan_files(files, tmp_path, config, parallel=True)
     serial = scan_files(files, tmp_path, config, parallel=False)
     assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
+
+
+def test_failed_chunks_retry_serially_without_losing_findings(
+    tmp_path, monkeypatch
+) -> None:
+    from concurrent.futures import Future
+
+    build_tree(tmp_path)
+    files = files_of(tmp_path)
+    config = load_config(tmp_path)
+
+    class ImmediatePool:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def submit(self, fn, *args):
+            future = Future()
+            future.set_running_or_notify_cancel()
+            if args[0][0] == files[0].as_posix():
+                future.set_exception(BrokenProcessPool())
+            else:
+                future.set_result(fn(*args))
+            return future
+
+    monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", ImmediatePool)
+    result = scan_files(files, tmp_path, config, parallel=True, chunk_size=1)
+    serial = scan_files(files, tmp_path, config, parallel=False)
+    assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
+    assert len(result) == len(serial) == 16
 
 
 def test_worker_count_caps(monkeypatch) -> None:
