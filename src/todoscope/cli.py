@@ -19,7 +19,11 @@ from todoscope.ai import (
     effective_limit,
     payload_characters,
 )
-from todoscope.blame import BlameError, blame_for_file
+from todoscope.blame import (
+    BLAME_TOTAL_BUDGET_SECONDS,
+    BlameError,
+    blame_for_file,
+)
 from todoscope.config import ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
@@ -265,14 +269,20 @@ def main(
 
     blames: dict[str, dict[int, object]] | None = None
     blame_missing = 0
+    blame_budget_exceeded = False
     if do_blame:
         blames = {}
         paths = sorted({indexed.finding.path for indexed in findings})
+        blame_started = time.monotonic()
         for rel_path in paths:
+            if time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS:
+                blame_budget_exceeded = True
+                break
             try:
                 blames[rel_path] = blame_for_file(root / rel_path, repo_root=root)
             except BlameError:
-                blame_missing += 1
+                pass
+        blame_missing = len(paths) - len(blames)
 
     if args.verbose:
         gitignore = root / ".gitignore"
@@ -281,6 +291,7 @@ def main(
             {
                 "blame_files": len(blames),
                 "blame_unavailable": blame_missing,
+                "blame_budget_exceeded": blame_budget_exceeded,
             }
             if blames is not None
             else {}

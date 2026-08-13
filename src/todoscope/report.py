@@ -231,6 +231,7 @@ def verbose_report(
     ai_payload_characters: int | None = None,
     blame_files: int | None = None,
     blame_unavailable: int | None = None,
+    blame_budget_exceeded: bool = False,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -262,6 +263,8 @@ def verbose_report(
     if blame_files is not None:
         lines.append(f"Files with blame: {blame_files}")
         lines.append(f"Blame unavailable: {blame_unavailable}")
+        if blame_budget_exceeded:
+            lines.append("Blame budget exceeded: yes")
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"

@@ -15,6 +15,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 BLAME_TIMEOUT_SECONDS = 30.0
+"""Per-file cap for a single ``git blame`` call."""
+
+BLAME_TOTAL_BUDGET_SECONDS = 120.0
+"""Aggregate cap across all blamed files in one scan. Typical files take
+~50ms, so the budget is rarely hit; it exists so N files can never sum to
+N x 30s. Files past the budget are reported as blame-unavailable."""
 
 _HEADER_PATTERN = re.compile(r"^[0-9a-f]{40}\b")
 _UNCOMMITTED = "0" * 40

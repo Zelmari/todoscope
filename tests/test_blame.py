@@ -182,3 +182,15 @@ def test_blame_failure_isolation(tmp_path, monkeypatch, capsys) -> None:
     assert result == 0
     assert "Blame unavailable" in captured.out
     assert "TODO: old" in captured.out
+
+
+def test_blame_aggregate_budget_cutoff(tmp_path, monkeypatch, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 0.0)
+    result = main([str(repo), "--blame", "--verbose"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Blame unavailable" in captured.out
+    assert "Files with blame: 0" in captured.err
+    assert "Blame budget exceeded: yes" in captured.err
+    assert "Authored by" not in captured.out

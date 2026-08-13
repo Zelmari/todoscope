@@ -30,15 +30,10 @@ where, and why it matters, so it can be resolved deliberately later.
 
 ## 4. Blame has no aggregate timeout budget
 
-- Where: `src/todoscope/blame.py` (`BLAME_TIMEOUT_SECONDS = 30`) and the CLI
-  blame loop.
-- What: the 30s timeout is per file; N files-with-findings can total N × 30s
-  in the worst case. Fine in practice (small sets, git is fast), but the
-  bound is undocumented.
-- Fix options (later): keep per-file 30s and add an aggregate budget with
-  graceful cutoff, or document the per-file-only bound explicitly as a
-  product decision.
-- Status: deferred (documented here in the meantime).
+- Status: **RESOLVED (2026-08-13, 0.9.4)** — `BLAME_TOTAL_BUDGET_SECONDS`
+  (120s) caps the whole blame phase: once exceeded, remaining files are
+  reported as blame-unavailable and verbose prints
+  `Blame budget exceeded: yes`. Per-file timeout stays 30s.
 
 ## 5. Engine constants are not fully derivable from BENCHMARKS.md
 
