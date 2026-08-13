@@ -24,7 +24,7 @@ requires-python = ">=3.12"
 dependencies = [
     "openai>=3.0.0",
     "pathspec>=1.1.1",
-    "tree-sitter>=0.26.0",
+    "tree-sitter>=0.25.2,<0.26",
     "tree-sitter-c>=0.24.2",
     "tree-sitter-c-sharp>=0.23.5",
     "tree-sitter-cpp>=0.23.4",
