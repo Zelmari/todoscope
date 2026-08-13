@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures.process import BrokenProcessPool
+from pathlib import Path
 
 from todoscope.config import load_config
 from todoscope.scan import (
@@ -119,7 +120,7 @@ def test_failed_chunks_retry_serially_without_losing_findings(
         def submit(self, fn, *args):
             future = Future()
             future.set_running_or_notify_cancel()
-            if args[0][0] == files[0].as_posix():
+            if Path(args[0][0]) == files[0]:
                 future.set_exception(BrokenProcessPool())
             else:
                 future.set_result(fn(*args))
