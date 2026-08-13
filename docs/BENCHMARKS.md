@@ -14,9 +14,10 @@ Measured engine performance and the decisions derived from it.
 - `benchmarks/run.py` measures the full engine (`scan_files`), one warmup
   plus 5 timed runs per mode, reporting **median and min**. Serial and
   worker counts {2, 4, 8, 16, 32}.
-- Machine: Linux x86_64, 32 cores, 62.1 GiB RAM, Python 3.12.13, warm page
-  cache. Cold-cache runs are possible with
-  `sudo sysctl vm.drop_caches=3` first (the harness never runs sudo).
+- Machine: Linux x86_64, **16 physical cores / 32 threads** (Ryzen 395),
+  62.1 GiB RAM, Python 3.12.13, warm page cache. Cold-cache runs are
+  possible with `sudo sysctl vm.drop_caches=3` first (the harness never
+  runs sudo).
 
 ## Results (2026-08-13, all ten languages)
 

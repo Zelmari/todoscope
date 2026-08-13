@@ -14,14 +14,10 @@ where, and why it matters, so it can be resolved deliberately later.
 
 ## 2. BENCHMARKS.md claims "32 cores"
 
-- Where: `docs/BENCHMARKS.md` methodology section and any prose mentioning
-  core count.
-- What: the machine is a Ryzen 395 — 16 physical cores / 32 threads.
-  `benchmarks/run.py` reports `os.cpu_count()` (threads) as `cpu_count: 32`,
-  which is accurate for threads but misleadingly worded as "cores".
-- Fix: report both (physical cores where detectable plus thread count) and
-  correct the wording in BENCHMARKS.md and DECISIONS.md.
-- Status: deferred.
+- Status: **RESOLVED (2026-08-13, 0.9.4)** — machine_spec now reports
+  physical cores separately from threads (`cpu: N cores / M threads`),
+  detected via /proc/cpuinfo on Linux with a thread-count fallback, and
+  BENCHMARKS.md reads "16 physical cores / 32 threads (Ryzen 395)".
 
 ## 3. Silent degradation when crashed chunks retry serially
 

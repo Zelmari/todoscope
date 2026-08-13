@@ -39,6 +39,19 @@ WORKERS = (2, 4, 8, 16, 32)
 RUNS = 5
 
 
+def _physical_cores() -> int | None:
+    """Physical core count via /proc/cpuinfo (Linux); None elsewhere."""
+    try:
+        core_ids = set()
+        with open("/proc/cpuinfo", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("core id"):
+                    core_ids.add(int(line.split(":")[1].strip()))
+        return len(core_ids) or None
+    except (OSError, ValueError):
+        return None
+
+
 def machine_spec() -> str:
     try:
         import os
@@ -48,12 +61,14 @@ def machine_spec() -> str:
         ram = f"{page * pages / 1024**3:.1f} GiB"
     except (ImportError, ValueError, OSError):
         ram = "unknown"
+    threads = __import__("os").cpu_count() or 1
+    cores = _physical_cores() or threads
     processor = platform.processor() or platform.machine()
     return "\n".join(
         [
             f"platform: {platform.platform()}",
             f"processor: {processor}",
-            f"cpu_count: {__import__('os').cpu_count()}",
+            f"cpu: {cores} cores / {threads} threads",
             f"ram: {ram}",
             f"python: {platform.python_version()}",
         ]
