@@ -44,6 +44,8 @@ class ScanStats:
     ignored_by_config: int = 0
     unreadable: int = 0
     symlinks: int = 0
+    serial_retry_chunks: int = 0
+    """Chunks re-run serially because a pool worker crashed."""
 
 
 @dataclass(frozen=True, slots=True)

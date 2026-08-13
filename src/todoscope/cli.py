@@ -295,6 +295,7 @@ def main(
                 gitignore_path,
                 secondary_key_configured=keys.secondary is not None,
                 ai_payload_characters=ai_payload_chars,
+                serial_retried_chunks=stats.serial_retry_chunks,
                 **blame_kwargs,
             ),
             file=sys.stderr,

@@ -82,15 +82,16 @@ def _extract_parallel(
     config: Config,
     workers: int,
     chunk_size: int,
-) -> list[Finding]:
+) -> tuple[list[Finding], int]:
     """Windowed pool extraction with per-chunk retry.
 
     At most ``2 * workers`` chunks are ever in flight: new chunks are
     submitted only as completed ones come back, so the queue stays strictly
     bounded regardless of repository size. A crashed worker
     (BrokenProcessPool) fails only the chunks that never finished; those
-    are re-run serially so findings are never lost. Results are reassembled
-    in input order.
+    are re-run serially so findings are never lost, and the retried count
+    is returned for verbose reporting. Results are reassembled in input
+    order.
     """
     chunks = [
         [str(p) for p in files[i : i + chunk_size]]
@@ -136,12 +137,13 @@ def _extract_parallel(
     except BrokenProcessPool:
         pass
 
+    retried = sum(1 for chunk in results if chunk is None)
     for index, chunk in enumerate(chunks):
         if results[index] is None:
             results[index] = _extract_chunk_worker(
                 chunk, str(project_root), config.markers
             )
-    return [finding for chunk in results if chunk for finding in chunk]
+    return [finding for chunk in results if chunk for finding in chunk], retried
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,15 +176,17 @@ def scan_files(
     ``parallel`` may force or forbid the process pool; by default it is
     used when the file count reaches PARALLEL_MIN_FILES (sweep-derived
     crossover; total bytes proved irrelevant once the count qualifies).
-    Crashed chunks retry serially so findings are never lost.
+    Crashed chunks retry serially so findings are never lost; the returned
+    retry count feeds verbose reporting.
     """
     if parallel is None:
         parallel = len(files) >= PARALLEL_MIN_FILES
 
+    retried = 0
     if parallel:
         workers = max_workers if max_workers is not None else _worker_count()
         try:
-            extracted = _extract_parallel(
+            extracted, retried = _extract_parallel(
                 files, project_root, config, workers, chunk_size
             )
         except BrokenProcessPool:
@@ -191,10 +195,11 @@ def scan_files(
         extracted = _extract_serial(files, project_root, config)
 
     ordered = sort_findings(extracted)
-    return tuple(
+    indexed = tuple(
         IndexedFinding(id=index, finding=finding)
         for index, finding in enumerate(ordered, start=1)
     )
+    return indexed, retried
 
 
 def scan(
@@ -209,5 +214,6 @@ def scan(
     result: DiscoveryResult = discover_files(
         target, project_root, config, spec=spec, override=override
     )
-    findings = scan_files(result.files, project_root, config)
+    findings, retried = scan_files(result.files, project_root, config)
+    result.stats.serial_retry_chunks = retried
     return findings, result.stats

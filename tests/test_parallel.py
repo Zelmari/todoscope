@@ -30,8 +30,8 @@ def test_serial_and_parallel_are_identical(tmp_path) -> None:
     build_tree(tmp_path)
     files = files_of(tmp_path)
     config = load_config(tmp_path)
-    serial = scan_files(files, tmp_path, config, parallel=False)
-    parallel = scan_files(files, tmp_path, config, parallel=True, max_workers=2)
+    serial, _ = scan_files(files, tmp_path, config, parallel=False)
+    parallel, _ = scan_files(files, tmp_path, config, parallel=True, max_workers=2)
     assert [(i.id, i.finding) for i in serial] == [(i.id, i.finding) for i in parallel]
     assert [i.id for i in serial] == list(range(1, len(serial) + 1))
 
@@ -92,8 +92,8 @@ def test_broken_pool_falls_back_to_serial(tmp_path, monkeypatch) -> None:
         raise BrokenProcessPool()
 
     monkeypatch.setattr("todoscope.scan._extract_parallel", crash)
-    result = scan_files(files, tmp_path, config, parallel=True)
-    serial = scan_files(files, tmp_path, config, parallel=False)
+    result, _ = scan_files(files, tmp_path, config, parallel=True)
+    serial, _ = scan_files(files, tmp_path, config, parallel=False)
     assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
 
 
@@ -126,10 +126,11 @@ def test_failed_chunks_retry_serially_without_losing_findings(
             return future
 
     monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", ImmediatePool)
-    result = scan_files(files, tmp_path, config, parallel=True, chunk_size=1)
-    serial = scan_files(files, tmp_path, config, parallel=False)
+    result, retried = scan_files(files, tmp_path, config, parallel=True, chunk_size=1)
+    serial, _ = scan_files(files, tmp_path, config, parallel=False)
     assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
     assert len(result) == len(serial) == 16
+    assert retried == 1
 
 
 def test_submission_window_is_bounded(tmp_path, monkeypatch) -> None:
@@ -173,12 +174,13 @@ def test_submission_window_is_bounded(tmp_path, monkeypatch) -> None:
 
     pool = WindowPool()
     monkeypatch.setattr("todoscope.scan.ProcessPoolExecutor", lambda **kw: pool)
-    result = scan_files(
+    result, retried = scan_files(
         files, tmp_path, config, parallel=True, max_workers=2, chunk_size=1
     )
-    serial = scan_files(files, tmp_path, config, parallel=False)
+    serial, _ = scan_files(files, tmp_path, config, parallel=False)
     assert [(i.id, i.finding) for i in result] == [(i.id, i.finding) for i in serial]
     assert pool.max_inflight <= 4  # 2 x workers
+    assert retried == 0
 
 
 def test_worker_count_caps(monkeypatch) -> None:
@@ -192,4 +194,4 @@ def test_worker_count_caps(monkeypatch) -> None:
 
 def test_scan_files_with_empty_input(tmp_path) -> None:
     config = load_config(tmp_path)
-    assert scan_files((), tmp_path, config) == ()
+    assert scan_files((), tmp_path, config) == ((), 0)

@@ -129,7 +129,8 @@ def run_benchmark(
     for label, kwargs in modes:
 
         def run_scan(kwargs=kwargs):
-            return scan_files(files, tree, config, **kwargs)
+            indexed, _ = scan_files(files, tree, config, **kwargs)
+            return indexed
 
         _timed(run_scan)  # warmup
         times = [_timed(run_scan) for _ in range(RUNS)]

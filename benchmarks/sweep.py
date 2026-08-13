@@ -72,9 +72,10 @@ def _measure(tree: Path, workers: int | None, chunk_size: int = 200) -> float:
             "chunk_size": chunk_size,
         }
     )
-    scan_files(files, tree, config, **kwargs)  # warmup
+    scan_files(files, tree, config, **kwargs)  # warmup (ignore retry count)
     times = [
-        _timed(lambda: scan_files(files, tree, config, **kwargs)) for _ in range(RUNS)
+        _timed(lambda: scan_files(files, tree, config, **kwargs)[0])
+        for _ in range(RUNS)
     ]
     return statistics.median(times)
 

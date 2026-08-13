@@ -30,7 +30,8 @@ def test_scan_files_assigns_ids_in_sorted_order(tmp_path) -> None:
     (tmp_path / "src" / "b.py").write_text("# TODO: first\n")
     (tmp_path / "main.py").write_text("# TODO: second\n")
     files = tuple(sorted((tmp_path / "main.py", tmp_path / "src" / "b.py")))
-    indexed = scan_files(files, tmp_path, load_config(tmp_path))
+    indexed, retried = scan_files(files, tmp_path, load_config(tmp_path))
+    assert retried == 0
     assert [(i.id, i.finding.path) for i in indexed] == [
         (1, "main.py"),
         (2, "src/b.py"),

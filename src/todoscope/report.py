@@ -231,6 +231,7 @@ def verbose_report(
     ai_payload_characters: int | None = None,
     blame_files: int | None = None,
     blame_unavailable: int | None = None,
+    serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
     config_used = str(config.path) if config.path is not None else "(defaults)"
@@ -261,4 +262,8 @@ def verbose_report(
     if blame_files is not None:
         lines.append(f"Files with blame: {blame_files}")
         lines.append(f"Blame unavailable: {blame_unavailable}")
+    if serial_retried_chunks:
+        lines.append(
+            f"Chunks retried serially after worker crash: {serial_retried_chunks}"
+        )
     return "\n".join(lines)
