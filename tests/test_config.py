@@ -16,7 +16,7 @@ from todoscope.config import (
 
 def write(path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
 
 
 def test_git_root_wins_inside_repository(tmp_path) -> None:

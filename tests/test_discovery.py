@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import sys
+
+import pytest
 
 from todoscope.config import load_config
 from todoscope.discovery import (
@@ -18,7 +21,7 @@ from todoscope.discovery import (
 
 def write(path, content: str = ""):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return path
 
 
@@ -121,6 +124,10 @@ def test_symlinked_files_and_dirs_are_skipped(tmp_path) -> None:
     assert result.stats.symlinks == 2
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 000 does not make files unreadable on Windows",
+)
 def test_unreadable_file_is_skipped_and_counted(tmp_path) -> None:
     write(tmp_path / "secret.py")
     os.chmod(tmp_path / "secret.py", 0o000)

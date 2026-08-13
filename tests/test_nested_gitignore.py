@@ -15,7 +15,7 @@ from todoscope.discovery import (
 
 def write(path, content: str = ""):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return path
 
 

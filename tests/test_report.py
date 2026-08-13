@@ -130,7 +130,7 @@ def test_verbose_report_contains_details_but_no_secrets(tmp_path) -> None:
         symlinks=2,
     )
     report = verbose_report("src/", Path("/proj"), config, stats, 0.125, None)
-    assert "Project root: /proj" in report
+    assert f"Project root: {Path('/proj')}" in report
     assert "Excluded by .gitignore: 1" in report
     assert "Unsupported files: 2" in report
     assert "Unreadable files: 1" in report

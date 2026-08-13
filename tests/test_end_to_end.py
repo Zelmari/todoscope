@@ -95,12 +95,13 @@ def test_end_to_end_quiet_output(tmp_path, capsys) -> None:
 
 def test_installed_module_scan_smoke(tmp_path) -> None:
     root = build_fixture(tmp_path)
+    env = None if sys.platform == "win32" else {"PATH": "/usr/bin:/bin"}
     result = subprocess.run(
         [sys.executable, "-m", "todoscope", str(root)],
         capture_output=True,
         text=True,
         check=False,
-        env={"PATH": "/usr/bin:/bin"},
+        env=env,
     )
     assert result.returncode == 0
     assert "and found 3 TODO, FIXME comments." in result.stdout
