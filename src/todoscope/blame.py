@@ -37,6 +37,7 @@ class BlameInfo:
     commit: str
     author: str
     date: str
+    committed_date: str
 
     @property
     def uncommitted(self) -> bool:
@@ -66,6 +67,7 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
             commit=attrs.get("commit", ""),
             author=attrs.get("author", ""),
             date=attrs.get("date", ""),
+            committed_date=attrs.get("committed_date", ""),
         )
         for line in range(current_start, current_start + current_count):
             result[line] = info
@@ -92,6 +94,12 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
                     attrs["date"] = stamp.strftime("%Y-%m-%d")
                 except (ValueError, OSError):
                     attrs["date"] = ""
+            elif key == "committer-time":
+                try:
+                    stamp = datetime.fromtimestamp(int(value), tz=UTC)
+                    attrs["committed_date"] = stamp.strftime("%Y-%m-%d")
+                except (ValueError, OSError):
+                    attrs["committed_date"] = ""
     finish()
     return result
 

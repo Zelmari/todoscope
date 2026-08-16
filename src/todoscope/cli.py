@@ -95,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show who authored each finding via git blame",
     )
+    parser.add_argument(
+        "--age",
+        action="store_true",
+        help="show time since each finding's line was committed",
+    )
     return parser
 
 
@@ -217,14 +222,17 @@ def main(
         print(QUIET_AI_CONFLICT, file=sys.stderr)
     if args.quiet and args.blame:
         print("--quiet and --blame cannot be used together.", file=sys.stderr)
+    if args.quiet and args.age:
+        print("--quiet and --age cannot be used together.", file=sys.stderr)
 
-    do_blame = args.blame and not args.quiet
-    if do_blame:
+    do_history = (args.blame or args.age) and not args.quiet
+    if do_history:
+        option = "--blame" if args.blame else "--age"
         if not (root / ".git").exists():
-            print("Error: --blame requires a Git repository.", file=sys.stderr)
+            print(f"Error: {option} requires a Git repository.", file=sys.stderr)
             return 2
         if shutil.which("git") is None:
-            print("Error: --blame requires the git executable.", file=sys.stderr)
+            print(f"Error: {option} requires the git executable.", file=sys.stderr)
             return 2
 
     eligibility = ai_eligibility(
@@ -270,7 +278,7 @@ def main(
     blames: dict[str, dict[int, object]] | None = None
     blame_missing = 0
     blame_budget_exceeded = False
-    if do_blame:
+    if do_history:
         blames = {}
         paths = sorted({indexed.finding.path for indexed in findings})
         blame_started = time.monotonic()
@@ -323,7 +331,8 @@ def main(
             config,
             skip_line,
             ai_result,
-            blames,
+            blames if args.blame else None,
+            blames if args.age else None,
         )
 
     if args.format == "json":
@@ -340,7 +349,8 @@ def main(
             ai_result,
             ai_status,
             ai_reason,
-            blames,
+            blames if args.blame else None,
+            blames if args.age else None,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

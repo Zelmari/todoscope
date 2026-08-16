@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,35 @@ def blame_detail_line(info) -> str:
     return f"   Authored by {info.author} · {info.date} · {info.commit[:7]}"
 
 
+def age_detail_line(info, *, today: date | None = None) -> str:
+    """Describe time since the finding's current line was committed."""
+    if info is None or (not info.uncommitted and not info.committed_date):
+        return "   Age unavailable"
+    if info.uncommitted:
+        return "   Age: uncommitted"
+    if today is None:
+        today = date.today()
+    committed = date.fromisoformat(info.committed_date)
+    days = max((today - committed).days, 0)
+    day_word = "day" if days == 1 else "days"
+    return f"   Age: {days} {day_word} (committed {info.committed_date})"
+
+
+def _age_entry(info, *, today: date | None = None) -> dict[str, Any]:
+    if info is None or (not info.uncommitted and not info.committed_date):
+        return {"status": "unavailable", "days": None, "committed": None}
+    if info.uncommitted:
+        return {"status": "uncommitted", "days": None, "committed": None}
+    if today is None:
+        today = date.today()
+    committed = date.fromisoformat(info.committed_date)
+    return {
+        "status": "committed",
+        "days": max((today - committed).days, 0),
+        "committed": info.committed_date,
+    }
+
+
 def standard_report(
     findings: tuple[IndexedFinding, ...],
     files_scanned: int,
@@ -102,6 +132,7 @@ def standard_report(
     ai_skip_line: str | None,
     ai_result: AnalysisResult | None = None,
     blames: dict[str, dict[int, BlameInfo]] | None = None,
+    ages: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -119,6 +150,9 @@ def standard_report(
         if blames is not None:
             file_blames = blames.get(indexed.finding.path, {})
             block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
+        if ages is not None:
+            file_ages = ages.get(indexed.finding.path, {})
+            block.append(age_detail_line(file_ages.get(indexed.finding.line)))
         item = ai_by_id.get(indexed.id)
         if item is not None:
             block.append(_ai_detail_line(item))
@@ -153,6 +187,7 @@ def json_report(
     ai_status: str | None = None,
     ai_reason: str | None = None,
     blames: dict[str, dict[int, BlameInfo]] | None = None,
+    ages: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -197,6 +232,9 @@ def json_report(
                 if info is not None
                 else None
             )
+        if ages is not None:
+            info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
+            entry["age"] = _age_entry(info)
         return entry
 
     return {
