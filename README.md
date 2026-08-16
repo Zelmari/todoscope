@@ -20,6 +20,8 @@ todoscope src/
 - Respects every `.gitignore` in the tree (root and nested, with git's
   override semantics) and an optional exclusion list.
 - Works fully offline — the AI part is optional.
+- Can show how long each finding's current line has been committed using Git
+  history.
 - When AI is on, it sends only each comment's ID, marker, and text. No file
   names, no paths, no line numbers, no code.
 
@@ -43,6 +45,8 @@ todoscope src/main.py         # scan one file
 todoscope .                   # scan the whole project
 todoscope src/ --ai           # add AI interpretations and priorities
 todoscope src/ --blame        # add who-authored-each-finding via git blame
+todoscope src/ --age          # add time since each finding was committed
+todoscope src/ --age --blame  # show both age and attribution
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
@@ -57,15 +61,20 @@ every text mode uses the same canonical line:
 
 Scanning is local by default — `--ai` is opt-in and never runs when
 `--quiet` is given (the combination prints a note and behaves like plain
-`--quiet`). `--blame` requires a Git repository, adds one attribution line
-per finding (from a single `git blame --porcelain` call per file), and is
-likewise rejected with `--quiet`. Blame data never reaches the AI.
+`--quiet`). `--blame` requires a Git repository and adds one attribution line
+per finding. `--age` also requires Git and shows the number of days since the
+finding's current marker line was committed. Uncommitted lines are identified
+as such, while unavailable history is reported without failing the scan. Both
+options are rejected with `--quiet`; when combined, they share a single
+`git blame --porcelain` call per file. Git history data never reaches the AI.
 
 `--format json` prints a deterministic JSON document to stdout (scan
-metadata, findings, skipped counts, and the AI section with a machine-
-readable status/reason). Without `--ai`, the AI section is `null`. Verbose
-details and errors always go to stderr. JSON never contains API keys or
-environment values.
+metadata, findings, skipped counts, optional blame and age data, and the AI
+section with a machine-readable status/reason). Age entries include a status,
+an exact day count, and the commit date; uncommitted or unavailable entries
+use `null` for values that do not apply. Without `--ai`, the AI section is
+`null`. Verbose details and errors always go to stderr. JSON never contains
+API keys or environment values.
 
 ## Configuration
 
