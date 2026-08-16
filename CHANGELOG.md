@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0 (2026-08-16)
+
+### Added
+
+- `--age`: shows how many days have passed since each finding's current line
+  was committed. It uses Git's committer date, distinguishes uncommitted and
+  unavailable history, and adds structured age data to JSON reports.
+- `--age` and `--blame` share the same single `git blame --porcelain` call per
+  file when used together.
+
+
 ## 0.9.4 (2026-08-13)
 
 ### Fixed
