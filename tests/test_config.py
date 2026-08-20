@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from todoscope.config import (
@@ -60,6 +62,14 @@ def test_fallback_to_file_parent(tmp_path) -> None:
     assert discover_project_root(target) == tmp_path / "plain"
 
 
+def test_relative_target_finds_parent_git_root(tmp_path, monkeypatch) -> None:
+    write(tmp_path / ".git" / "HEAD", "")
+    target = tmp_path / "sub" / "deeper"
+    write(target / "file.py", "")
+    monkeypatch.chdir(target)
+    assert discover_project_root(Path(".")) == tmp_path
+
+
 def test_absent_config_returns_defaults(tmp_path) -> None:
     config = load_config(tmp_path)
     assert config.path is None
@@ -94,6 +104,12 @@ def test_valid_full_config(tmp_path) -> None:
 def test_malformed_json_is_an_error(tmp_path) -> None:
     write(tmp_path / ".todoscope.json", "{not json")
     with pytest.raises(ConfigError, match="invalid JSON"):
+        load_config(tmp_path)
+
+
+def test_invalid_utf8_config_is_a_config_error(tmp_path) -> None:
+    (tmp_path / ".todoscope.json").write_bytes(b"\xff")
+    with pytest.raises(ConfigError, match="Cannot read"):
         load_config(tmp_path)
 
 
@@ -142,6 +158,14 @@ def test_exclude_not_a_list_is_an_error(tmp_path) -> None:
 def test_empty_model_is_an_error(tmp_path) -> None:
     write(tmp_path / ".todoscope.json", '{"model": ""}')
     with pytest.raises(ConfigError, match="'model' must be a non-empty string"):
+        load_config(tmp_path)
+
+
+def test_model_is_trimmed_and_whitespace_only_is_rejected(tmp_path) -> None:
+    write(tmp_path / ".todoscope.json", '{"model": "  some-model  "}')
+    assert load_config(tmp_path).model == "some-model"
+    write(tmp_path / ".todoscope.json", '{"model": "   "}')
+    with pytest.raises(ConfigError, match="non-empty string"):
         load_config(tmp_path)
 
 

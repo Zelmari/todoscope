@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing
+import os
 import shutil
 import sys
 import time
@@ -30,6 +31,7 @@ from todoscope.discovery import (
     build_override,
     check_ignored,
     load_gitignore_spec,
+    target_has_symlink_component,
 )
 from todoscope.keys import env_file_is_ignored, load_keys
 from todoscope.openai_client import AiOutcomeKind, run_ai_analysis
@@ -180,7 +182,7 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    target = Path(args.path)
+    target = Path(os.path.abspath(args.path))
     if not target.exists():
         print(f"Error: '{args.path}' does not exist.", file=sys.stderr)
         return 2
@@ -188,14 +190,25 @@ def main(
     root = discover_project_root(target)
     try:
         config = load_config(root)
+        symlink_target = target_has_symlink_component(target, root)
+        spec = None if symlink_target else load_gitignore_spec(root)
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 3
 
-    spec = load_gitignore_spec(root)
     if interactive is None:
         interactive = _is_interactive()
-    ignored = check_ignored(target, root, config, spec=spec)
+    ignored = (
+        None
+        if symlink_target
+        else check_ignored(
+            target,
+            root,
+            config,
+            spec=spec,
+            ai_enabled=args.ai and not args.quiet,
+        )
+    )
     override = None
     if ignored is not None:
         if not interactive:
@@ -215,7 +228,11 @@ def main(
     env_ignored = env_file_is_ignored(root, spec)
 
     started = time.perf_counter()
-    findings, stats = scan(target, root, config, spec=spec, override=override)
+    try:
+        findings, stats = scan(target, root, config, spec=spec, override=override)
+    except ConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 3
     duration = time.perf_counter() - started
 
     if args.quiet and args.ai:

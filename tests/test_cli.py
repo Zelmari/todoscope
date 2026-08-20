@@ -76,6 +76,21 @@ def test_valid_directory_produces_local_report(
     assert "AI analysis skipped" not in captured.out
 
 
+def test_relative_subdirectory_uses_parent_project_root(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".todoscope.json").write_text('{"markers": ["FIXME"]}')
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "a.py").write_text("# FIXME: from parent config\n")
+    monkeypatch.chdir(sub)
+    result = main(["."])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "1. sub/a.py:1: FIXME: from parent config" in captured.out
+
+
 def test_no_findings_report(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("print(1)\n")
@@ -190,6 +205,40 @@ def test_config_error_exits_with_code_3(
     assert "invalid JSON" in captured.err
 
 
+def test_invalid_utf8_config_exits_with_code_3(tmp_path, capsys) -> None:
+    (tmp_path / ".todoscope.json").write_bytes(b"\xff")
+    (tmp_path / "a.py").write_text("# TODO\n")
+    result = main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert result == 3
+    assert "Cannot read" in captured.err
+    assert captured.out == ""
+
+
+def test_explicit_symlink_directory_never_scans_outside_project(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".git").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.py").write_text("# TODO: outside\n")
+    link = project / "linked"
+    link.symlink_to(outside, target_is_directory=True)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("AI must not be called for a symlink target")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", forbidden)
+    result = main([str(link), "--ai", "--verbose"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: outside" not in captured.out
+    assert "No TODO comments were found." in captured.out
+    assert "Symlinks skipped: 1" in captured.err
+
+
 def test_explicit_ignored_target_interactive_confirm(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -197,17 +246,37 @@ def test_explicit_ignored_target_interactive_confirm(
     gen = tmp_path / "generated"
     gen.mkdir()
     (gen / "x.py").write_text("# TODO\n")
-    confirmations: list[tuple[str, str]] = []
+    confirmations: list[tuple[str, str, bool]] = []
 
     def confirm(relative: str, source: str, ai_enabled: bool) -> bool:
-        confirmations.append((relative, source))
+        confirmations.append((relative, source, ai_enabled))
         return True
 
     result = main([str(gen)], interactive=True, confirm=confirm)
     captured = capsys.readouterr()
     assert result == 0
-    assert confirmations == [("generated", "gitignore")]
+    assert confirmations == [("generated", "gitignore", False)]
     assert "x.py" in captured.out
+
+
+def test_ignored_target_confirmation_receives_ai_disclosure_flag(
+    tmp_path, capsys
+) -> None:
+    (tmp_path / ".gitignore").write_text("generated/\n")
+    gen = tmp_path / "generated"
+    gen.mkdir()
+    (gen / "x.py").write_text("# TODO\n")
+    confirmations: list[bool] = []
+
+    def confirm(relative: str, source: str, ai_enabled: bool) -> bool:
+        confirmations.append(ai_enabled)
+        return False
+
+    result = main([str(gen), "--ai"], interactive=True, confirm=confirm)
+    captured = capsys.readouterr()
+    assert result == 0
+    assert confirmations == [True]
+    assert captured.out == ""
 
 
 def test_explicit_ignored_target_interactive_decline(

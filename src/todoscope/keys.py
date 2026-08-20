@@ -71,17 +71,22 @@ def load_keys(
         environ = dict(os.environ)
     env_values = _read_env_file(project_root)
 
-    primary = environ.get(PRIMARY_ENV_VAR)
-    primary_source: KeySource = "shell" if primary else "none"
-    if primary is None and PRIMARY_ENV_VAR in env_values:
-        primary = env_values[PRIMARY_ENV_VAR]
-        primary_source = "env_file"
+    def select(name: str) -> tuple[str | None, KeySource]:
+        # Presence in the shell is authoritative, including an explicitly blank
+        # value used to disable a repository-local key.
+        if name in environ:
+            value = environ[name]
+            if value.strip():
+                return value, "shell"
+            return None, "none"
+        if name in env_values:
+            value = env_values[name]
+            if value.strip():
+                return value, "env_file"
+        return None, "none"
 
-    secondary = environ.get(SECONDARY_ENV_VAR)
-    secondary_source: KeySource = "shell" if secondary else "none"
-    if secondary is None and SECONDARY_ENV_VAR in env_values:
-        secondary = env_values[SECONDARY_ENV_VAR]
-        secondary_source = "env_file"
+    primary, primary_source = select(PRIMARY_ENV_VAR)
+    secondary, secondary_source = select(SECONDARY_ENV_VAR)
 
     return KeyInfo(
         primary=primary,

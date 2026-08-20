@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,7 +58,12 @@ class Config:
 
 def discover_project_root(target: Path) -> Path:
     """Return the project root for ``target`` (Overarching section 12)."""
-    start = target if target.is_dir() else target.parent
+    target = Path(os.path.abspath(target))
+    start = (
+        target.parent
+        if target.is_symlink()
+        else (target if target.is_dir() else target.parent)
+    )
 
     git_root: Path | None = None
     config_root: Path | None = None
@@ -117,9 +123,9 @@ def _validate_exclude(value: object) -> tuple[str, ...]:
 
 
 def _validate_model(value: object) -> str:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         raise ConfigError("'model' must be a non-empty string.")
-    return value
+    return value.strip()
 
 
 def _validate_max_ai_characters(value: object) -> int:
@@ -179,6 +185,6 @@ def load_config(project_root: Path) -> Config:
         return Config(path=None)
     try:
         text = config_path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
     return parse_config_text(text, config_path)

@@ -57,6 +57,26 @@ def test_env_file_fills_missing_values_only(tmp_path) -> None:
     assert keys.secondary_source == "env_file"
 
 
+def test_blank_shell_value_disables_env_file_fallback(tmp_path) -> None:
+    write_env(tmp_path, f"{PRIMARY_ENV_VAR}=env-primary\n")
+    keys = load_keys(tmp_path, None, environ={PRIMARY_ENV_VAR: "   "})
+    assert keys.primary is None
+    assert keys.primary_source == "none"
+    assert keys.uses_env_file is False
+
+
+def test_blank_env_file_values_are_not_configured(tmp_path) -> None:
+    write_env(
+        tmp_path,
+        f"{PRIMARY_ENV_VAR}=\n{SECONDARY_ENV_VAR}=   \n",
+    )
+    keys = load_keys(tmp_path, None, environ={})
+    assert keys.primary is None
+    assert keys.secondary is None
+    assert keys.primary_source == keys.secondary_source == "none"
+    assert keys.uses_env_file is False
+
+
 def test_no_keys_without_env_or_shell(tmp_path) -> None:
     keys = load_keys(tmp_path, None, environ={})
     assert keys.primary is None

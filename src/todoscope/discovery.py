@@ -16,7 +16,7 @@ from typing import Protocol
 
 import pathspec
 
-from todoscope.config import Config
+from todoscope.config import Config, ConfigError
 
 GITIGNORE_SOURCE = "gitignore"
 CONFIG_SOURCE = "configuration"
@@ -83,10 +83,29 @@ def relative_posix(path: Path, root: Path) -> str:
 
 def load_gitignore_spec(directory: Path) -> pathspec.PathSpec | None:
     gitignore = directory / ".gitignore"
-    if not gitignore.is_file():
+    try:
+        lines = gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
         return None
-    lines = gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        raise ConfigError(f"Cannot read {gitignore}: {exc}") from exc
     return pathspec.GitIgnoreSpec.from_lines(lines)
+
+
+def target_has_symlink_component(target: Path, project_root: Path) -> bool:
+    """True when the requested path crosses a symlink below its project root."""
+    try:
+        relative = target.relative_to(project_root)
+    except ValueError:
+        return True
+    current = project_root
+    if current.is_symlink():
+        return True
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
 
 
 def _chain_for(
@@ -231,12 +250,15 @@ def discover_files(
     override: Override | None = None,
 ) -> DiscoveryResult:
     """Walk ``target`` and return allowed source files plus stats."""
+    files: list[Path] = []
+    stats = ScanStats()
+    if target_has_symlink_component(target, project_root):
+        stats.symlinks = 1
+        return DiscoveryResult(files=(), stats=stats)
+
     if spec is None:
         spec = load_gitignore_spec(project_root)
     spec_cache: dict[Path, object] = {}
-
-    files: list[Path] = []
-    stats = ScanStats()
 
     def handle_file(path: Path, chain: tuple[IgnoreSource, ...]) -> None:
         rel = relative_posix(path, project_root)

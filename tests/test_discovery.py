@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
-from todoscope.config import load_config
+from todoscope.config import ConfigError, load_config
 from todoscope.discovery import (
     CONFIG_SOURCE,
     GITIGNORE_SOURCE,
@@ -122,6 +123,62 @@ def test_symlinked_files_and_dirs_are_skipped(tmp_path) -> None:
     result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
     assert names(result, tmp_path) == ["real.py", "real_subdir/x.py"]
     assert result.stats.symlinks == 2
+
+
+def test_explicit_symlink_directory_is_not_scanned(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    write(outside / "secret.py", "# TODO: outside\n")
+    project = tmp_path / "project"
+    project.mkdir()
+    link = project / "linked"
+    link.symlink_to(outside, target_is_directory=True)
+    result = discover_files(link, project, load_config(project))
+    assert result.files == ()
+    assert result.stats.scanned == 0
+    assert result.stats.symlinks == 1
+
+
+def test_target_below_symlink_directory_is_not_scanned(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    write(outside / "nested" / "secret.py", "# TODO: outside\n")
+    project = tmp_path / "project"
+    project.mkdir()
+    link = project / "linked"
+    link.symlink_to(outside, target_is_directory=True)
+    target = link / "nested"
+    result = discover_files(target, project, load_config(project))
+    assert result.files == ()
+    assert result.stats.symlinks == 1
+
+
+def test_unreadable_gitignore_raises_config_error(tmp_path, monkeypatch) -> None:
+    gitignore = write(tmp_path / ".gitignore", "generated/\n")
+    real_read_text = Path.read_text
+
+    def fail_gitignore(path, *args, **kwargs):
+        if path == gitignore:
+            raise PermissionError("denied")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_gitignore)
+    with pytest.raises(ConfigError, match=r"Cannot read .*\.gitignore"):
+        load_gitignore_spec(tmp_path)
+
+
+def test_unreadable_nested_gitignore_aborts_discovery(tmp_path, monkeypatch) -> None:
+    write(tmp_path / "keep.py")
+    nested_gitignore = write(tmp_path / "nested" / ".gitignore", "*.py\n")
+    write(tmp_path / "nested" / "secret.py")
+    real_read_text = Path.read_text
+
+    def fail_nested(path, *args, **kwargs):
+        if path == nested_gitignore:
+            raise PermissionError("denied")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_nested)
+    with pytest.raises(ConfigError, match=r"Cannot read .*nested/\.gitignore"):
+        discover_files(tmp_path, tmp_path, load_config(tmp_path))
 
 
 @pytest.mark.skipif(
