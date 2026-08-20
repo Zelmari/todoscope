@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.1 (2026-08-20)
+
+### Fixed
+
+- Project discovery now behaves consistently for relative targets, rejects
+  symlink target escapes, and fails closed when ignore files cannot be read.
+- Configuration and credential boundaries are stricter: malformed UTF-8 is
+  reported cleanly, whitespace-only models are rejected, and an explicitly
+  blank shell API key cannot silently fall through to a `.env` credential.
+- Comment parsing tolerates malformed Python token streams, preserves pointer
+  text in block comments, removes decorative star banners, and keeps grouped
+  comment text free of stray whitespace and separators.
+- Finding and traversal order is deterministic even when paths differ only by
+  case, while findings on the same source line retain their source order.
+- Git history supports SHA-1 and SHA-256 object IDs, correctly reuses metadata
+  for interleaved porcelain hunks, and enforces the aggregate timeout on the
+  final in-flight blame call.
+- AI failures now handle invalid keys, client construction errors, and empty
+  responses without crashing; validated AI items are emitted in finding order.
+- Non-interactive stream detection and incomplete blame metadata now degrade
+  to safe, readable output instead of raising exceptions.
+
+
 ## 0.10.0 (2026-08-16)
 
 ### Added
