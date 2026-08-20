@@ -126,6 +126,24 @@ def test_empty_todo_is_included() -> None:
     assert result == [Finding("TODO", "", "file.ext", 1)]
 
 
+def test_empty_marker_body_does_not_add_leading_space() -> None:
+    result = findings("# TODO\n# details\n", Language.PYTHON)
+    assert result == [Finding("TODO", "details", "file.ext", 1)]
+
+
+def test_empty_comment_lines_bridge_without_double_spaces() -> None:
+    result = findings(
+        "# TODO: first\n#\n#    \n# second\n",
+        Language.PYTHON,
+    )
+    assert result == [Finding("TODO", "first second", "file.ext", 1)]
+
+
+def test_marker_and_continuation_whitespace_is_trimmed() -> None:
+    result = findings("# TODO:\tfirst   \n#\tsecond   \n", Language.PYTHON)
+    assert result == [Finding("TODO", "first second", "file.ext", 1)]
+
+
 def test_vague_todo_text_is_preserved() -> None:
     result = findings("# TODO: fix this\n", Language.PYTHON)
     assert result[0].text == "fix this"
@@ -208,6 +226,16 @@ def test_normalise_line_comment_strips_decorators() -> None:
 def test_normalise_block_comment_strips_decoration() -> None:
     raw = "/*\n * TODO: a\n *\n * b\n */"
     assert normalise_block_comment(raw) == "TODO: a b"
+
+
+def test_normalise_block_comment_preserves_content_asterisks() -> None:
+    raw = "/*\n ** TODO: dereference\n **ptr here\n * *other too\n ********\n */"
+    assert normalise_block_comment(raw) == ("TODO: dereference *ptr here *other too")
+
+
+def test_normalise_block_comment_handles_decorative_star_runs() -> None:
+    raw = "/********\n ** TODO: banner\n ********/"
+    assert normalise_block_comment(raw) == "TODO: banner"
 
 
 def test_findings_for_file_uses_extension_language(tmp_path) -> None:

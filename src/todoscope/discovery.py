@@ -321,8 +321,13 @@ def discover_files(
                         subdirs.append((path, chain))
                 else:
                     handle_file(path, chain)
-            for sub in sorted(subdirs, key=lambda t: t[0].name.casefold()):
+            for sub in sorted(subdirs, key=lambda t: (t[0].name.casefold(), t[0].name)):
                 stack.append(sub)
 
-    files.sort(key=lambda p: relative_posix(p, project_root).casefold())
+    files.sort(
+        key=lambda p: (
+            relative_posix(p, project_root).casefold(),
+            relative_posix(p, project_root),
+        )
+    )
     return DiscoveryResult(files=tuple(files), stats=stats)

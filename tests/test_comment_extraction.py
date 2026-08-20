@@ -120,6 +120,18 @@ def test_broken_python_file_does_not_crash_and_is_conservative() -> None:
     assert [c.text for c in comments] == ["# TODO: before"]
 
 
+def test_python_bad_unindent_preserves_earlier_comments() -> None:
+    source = "# TODO: before\nif True:\n    pass\n  pass\n# TODO: after\n"
+    comments = extract_python_comments(source)
+    assert [c.text for c in comments] == ["# TODO: before"]
+
+
+def test_python_mixed_tabs_and_spaces_preserves_earlier_comments() -> None:
+    source = "# TODO: before\nif True:\n\tpass\n        pass\n# TODO: after\n"
+    comments = extract_python_comments(source)
+    assert [c.text for c in comments] == ["# TODO: before"]
+
+
 def test_broken_javascript_file_does_not_crash() -> None:
     source = 'function f() { // TODO: still found\n const x = "unterminated;\n'
     comments = extract_comments(source, Language.JAVASCRIPT)

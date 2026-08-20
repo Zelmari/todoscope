@@ -4,9 +4,9 @@ Strategy (MS-2 decision, revised MS-17-fix):
 
 - Python: standard-library ``tokenize``. It is lexical, understands raw and
   triple-quoted strings, and never reports string contents as comments. On
-  lexical errors (e.g. an unterminated multiline string) it raises
-  ``TokenError``; we stop and return the comments found so far rather than
-  risking false positives.
+  lexical or indentation errors it raises ``TokenError`` or a ``SyntaxError``
+  subclass; we stop and return the comments found so far rather than risking
+  false positives.
 - All other languages: Tree-sitter via the individual grammar packages
   (tree-sitter-javascript, -typescript, -rust, -java, -go, -c, -cpp,
   -c-sharp). Grammars are bundled inside the wheels, so no runtime download
@@ -97,9 +97,9 @@ def extract_python_comments(source: str) -> list[Comment]:
                         end_line=token.end[0],
                     )
                 )
-    except pytokenize.TokenError:
-        # Lexically broken file (e.g. unterminated string): keep what was
-        # found and do not guess.
+    except (pytokenize.TokenError, SyntaxError):
+        # Lexically or structurally broken file: keep what was found and do
+        # not guess.
         pass
     return comments
 

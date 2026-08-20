@@ -161,7 +161,7 @@ def sort_findings(findings: list[Finding]) -> list[Finding]:
     """Deterministic order: directory depth, case-normalised path, line."""
     return sorted(
         findings,
-        key=lambda f: (f.path.count("/"), f.path.casefold(), f.line),
+        key=lambda f: (f.path.count("/"), f.path.casefold(), f.path, f.line),
     )
 
 

@@ -25,6 +25,30 @@ def test_sort_by_depth_then_casefold_path_then_line() -> None:
     ]
 
 
+def test_sort_uses_raw_path_to_break_casefold_collisions() -> None:
+    findings = [
+        Finding("TODO", "lower two", "a.py", 2),
+        Finding("TODO", "upper two", "A.py", 2),
+        Finding("TODO", "lower one", "a.py", 1),
+        Finding("TODO", "upper one", "A.py", 1),
+    ]
+    ordered = sort_findings(findings)
+    assert [(f.path, f.line) for f in ordered] == [
+        ("A.py", 1),
+        ("A.py", 2),
+        ("a.py", 1),
+        ("a.py", 2),
+    ]
+
+
+def test_sort_preserves_source_order_for_exact_position_ties() -> None:
+    findings = [
+        Finding("TODO", "z", "a.c", 1),
+        Finding("FIXME", "a", "a.c", 1),
+    ]
+    assert sort_findings(findings) == findings
+
+
 def test_scan_files_assigns_ids_in_sorted_order(tmp_path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "b.py").write_text("# TODO: first\n")

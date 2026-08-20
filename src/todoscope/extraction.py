@@ -35,7 +35,8 @@ def marker_prefix(normalised: str, markers: tuple[str, ...]) -> str | None:
 
 def strip_marker(normalised: str, marker: str) -> str:
     """Remove the matched marker and any following ``:``/whitespace."""
-    return normalised[len(marker) :].lstrip(": ")
+    remainder = normalised[len(marker) :].strip()
+    return remainder.lstrip(":").strip()
 
 
 def normalise_line_comment(language: Language, raw: str) -> str:
@@ -55,9 +56,16 @@ def normalise_block_comment(raw: str) -> str:
     interior = raw[2:-2].strip() if raw.endswith("*/") else raw[2:].strip()
     lines: list[str] = []
     for line in interior.splitlines():
-        stripped = line.lstrip()
-        stripped = stripped.lstrip("*")
-        stripped = stripped.lstrip()
+        stripped = line.strip()
+        if stripped and set(stripped) == {"*"}:
+            continue
+        star_count = len(stripped) - len(stripped.lstrip("*"))
+        if star_count:
+            remainder = stripped[star_count:]
+            if remainder[:1].isspace():
+                stripped = remainder.lstrip()
+            else:
+                stripped = stripped[1:].lstrip()
         if stripped:
             lines.append(stripped)
     return " ".join(lines)
@@ -118,11 +126,14 @@ def findings_for_comments(
         if marker is not None:
             close_group()
             open_marker = marker
-            open_parts = [strip_marker(normalised, marker)]
+            initial = strip_marker(normalised, marker)
+            open_parts = [initial] if initial else []
             open_line = comment.start_line
             open_end_line = comment.end_line
         elif open_marker is not None and comment.start_line == open_end_line + 1:
-            open_parts.append(normalised)
+            continuation = normalised.strip()
+            if continuation:
+                open_parts.append(continuation)
             open_end_line = comment.end_line
         else:
             close_group()
