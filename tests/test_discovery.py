@@ -177,8 +177,9 @@ def test_unreadable_nested_gitignore_aborts_discovery(tmp_path, monkeypatch) -> 
         return real_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", fail_nested)
-    with pytest.raises(ConfigError, match=r"Cannot read .*nested/\.gitignore"):
+    with pytest.raises(ConfigError) as exc_info:
         discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert str(exc_info.value) == f"Cannot read {nested_gitignore}: denied"
 
 
 @pytest.mark.skipif(
