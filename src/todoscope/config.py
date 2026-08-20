@@ -11,7 +11,6 @@ from pathlib import Path
 from todoscope.parsing.comments import Language
 
 CONFIG_FILENAME = ".todoscope.json"
-ENV_FILENAME = ".env"
 
 HARD_MAX_AI_CHARACTERS = 100_000
 """Provisional ceiling; frozen and documented before version 1.0 (MS-7/MS-10)."""
