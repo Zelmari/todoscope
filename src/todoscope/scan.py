@@ -173,7 +173,7 @@ def scan_files(
     max_workers: int | None = None,
     parallel: bool | None = None,
     chunk_size: int = SUBMIT_CHUNK_SIZE,
-) -> tuple[IndexedFinding, ...]:
+) -> tuple[tuple[IndexedFinding, ...], int]:
     """Extract findings from permitted files, sort them, and assign IDs.
 
     ``parallel`` may force or forbid the process pool; by default it is
