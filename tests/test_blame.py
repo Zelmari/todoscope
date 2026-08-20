@@ -6,7 +6,14 @@ import json
 import subprocess
 from datetime import date
 
-from todoscope.blame import BlameError, blame_for_file, parse_porcelain
+import pytest
+
+from todoscope.blame import (
+    BlameError,
+    BlameTimeoutError,
+    blame_for_file,
+    parse_porcelain,
+)
 from todoscope.cli import main
 
 PORCELAIN_SAMPLE = """\
@@ -62,6 +69,52 @@ def test_parse_porcelain_carries_attributes_across_hunks() -> None:
     assert result[3].committed_date == "2025-06-15"
 
 
+INTERLEAVED_COMMIT_HUNKS = """\
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 1 1
+author Alice
+author-time 1750000000
+committer-time 1750003600
+filename a.py
+\tline one
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2 2 1
+author Bob
+author-time 1750000100
+committer-time 1750003700
+filename a.py
+\tline two
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 3 3 1
+\tline three
+"""
+
+
+def test_parse_porcelain_caches_interleaved_commit_attributes() -> None:
+    result = parse_porcelain(INTERLEAVED_COMMIT_HUNKS)
+    assert set(result) == {1, 2, 3}
+    assert result[1].author == result[3].author == "Alice"
+    assert result[1].date == result[3].date == "2025-06-15"
+    assert result[2].author == "Bob"
+
+
+def test_parse_porcelain_supports_sha256_and_uncommitted_ids() -> None:
+    committed = "a" * 64
+    uncommitted = "0" * 64
+    text = (
+        f"{committed} 1 1 1\n"
+        "author Alice\n"
+        "author-time 1750000000\n"
+        "committer-time 1750003600\n"
+        "\tcommitted\n"
+        f"{uncommitted} 2 2 1\n"
+        "author Not Committed Yet\n"
+        "\tuncommitted\n"
+    )
+    result = parse_porcelain(text)
+    assert result[1].commit == committed
+    assert result[1].uncommitted is False
+    assert result[2].commit == uncommitted
+    assert result[2].uncommitted is True
+
+
 def _make_repo(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -105,6 +158,29 @@ def test_blame_missing_file_raises_blame_error(tmp_path) -> None:
         pass
     else:
         raise AssertionError("expected BlameError")
+
+
+def test_blame_non_subpath_raises_blame_error_without_running_git(
+    tmp_path, monkeypatch
+) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("git must not be invoked")
+
+    monkeypatch.setattr("todoscope.blame.subprocess.run", forbidden)
+    with pytest.raises(BlameError, match="outside repository root"):
+        blame_for_file(tmp_path / "outside.py", repo_root=tmp_path / "repo")
+
+
+def test_blame_timeout_has_specific_error(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "a.py"
+    path.write_text("# TODO\n")
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired("git", 1.0)
+
+    monkeypatch.setattr("todoscope.blame.subprocess.run", timeout)
+    with pytest.raises(BlameTimeoutError):
+        blame_for_file(path, timeout=1.0)
 
 
 def test_cli_blame_lines(tmp_path, capsys) -> None:
@@ -269,3 +345,56 @@ def test_blame_aggregate_budget_cutoff(tmp_path, monkeypatch, capsys) -> None:
     assert "Files with blame: 0" in captured.err
     assert "Blame budget exceeded: yes" in captured.err
     assert "Authored by" not in captured.out
+
+
+def test_blame_call_timeout_is_limited_by_remaining_budget(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    repo = _make_repo(tmp_path)
+    times = iter((0.0, 8.0))
+    monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 10.0)
+    monkeypatch.setattr("todoscope.cli.time.monotonic", lambda: next(times))
+    timeouts: list[float] = []
+
+    def record_timeout(path, *, timeout, repo_root):
+        timeouts.append(timeout)
+        return {}
+
+    monkeypatch.setattr("todoscope.cli.blame_for_file", record_timeout)
+    result = main([str(repo), "--blame"])
+    capsys.readouterr()
+    assert result == 0
+    assert timeouts == [2.0]
+
+
+def test_budget_limited_timeout_is_reported_for_final_file(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    repo = _make_repo(tmp_path)
+    times = iter((0.0, 8.0))
+    monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 10.0)
+    monkeypatch.setattr("todoscope.cli.time.monotonic", lambda: next(times))
+
+    def timeout(path, *, timeout, repo_root):
+        raise BlameTimeoutError("budget exhausted")
+
+    monkeypatch.setattr("todoscope.cli.blame_for_file", timeout)
+    result = main([str(repo), "--blame", "--verbose"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Files with blame: 0" in captured.err
+    assert "Blame unavailable: 1" in captured.err
+    assert "Blame budget exceeded: yes" in captured.err
+
+
+def test_zero_paths_do_not_report_budget_exhaustion(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 0.0)
+    result = main([str(repo), "--blame", "--verbose"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Blame budget exceeded" not in captured.err

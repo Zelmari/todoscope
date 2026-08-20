@@ -121,6 +121,25 @@ def test_analyze_wraps_transport_errors() -> None:
         analyze(ITEMS, "m", "k", client=client)
 
 
+def test_analyze_rejects_empty_choices() -> None:
+    class EmptyChoicesCompletions:
+        def create(self, **kwargs):
+            return type("EmptyResponse", (), {"choices": []})()
+
+    client = FakeClient(EmptyChoicesCompletions())
+    with pytest.raises(AiRequestError, match="no choices"):
+        analyze(ITEMS, "m", "k", client=client)
+
+
+@pytest.mark.parametrize("api_key", [None, "", "   ", 3])
+def test_analyze_rejects_invalid_api_keys(api_key) -> None:
+    completions = FakeCompletions(VALID_CONTENT)
+    client = FakeClient(completions)
+    with pytest.raises(AiRequestError, match="non-empty API key"):
+        analyze(ITEMS, "m", api_key, client=client)
+    assert completions.calls == []
+
+
 def test_analyze_accepts_explicit_no_format() -> None:
     completions = FakeCompletions(VALID_CONTENT)
     client = FakeClient(completions)
@@ -140,3 +159,12 @@ def test_default_client_has_no_retries(monkeypatch) -> None:
     monkeypatch.setattr("todoscope.openai_client.OpenAI", RecordingOpenAI)
     analyze(ITEMS, "m", "k")
     assert created[0]["max_retries"] == 0
+
+
+def test_default_client_construction_error_is_wrapped(monkeypatch) -> None:
+    def fail(**kwargs):
+        raise OpenAIError("bad credentials")
+
+    monkeypatch.setattr("todoscope.openai_client.OpenAI", fail)
+    with pytest.raises(AiRequestError, match="AI request failed"):
+        analyze(ITEMS, "m", "k")

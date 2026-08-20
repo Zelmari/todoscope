@@ -22,12 +22,16 @@ BLAME_TOTAL_BUDGET_SECONDS = 120.0
 ~50ms, so the budget is rarely hit; it exists so N files can never sum to
 N x 30s. Files past the budget are reported as blame-unavailable."""
 
-_HEADER_PATTERN = re.compile(r"^[0-9a-f]{40}\b")
-_UNCOMMITTED = "0" * 40
+_HEADER_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})(?=\s)")
+_OBJECT_ID_LENGTHS = (40, 64)
 
 
 class BlameError(Exception):
     """Blame could not be gathered for a file; the scan itself continues."""
+
+
+class BlameTimeoutError(BlameError):
+    """Git blame exceeded the timeout assigned to this file."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,20 +45,20 @@ class BlameInfo:
 
     @property
     def uncommitted(self) -> bool:
-        return self.commit == _UNCOMMITTED
+        return len(self.commit) in _OBJECT_ID_LENGTHS and set(self.commit) == {"0"}
 
 
 def parse_porcelain(text: str) -> dict[int, BlameInfo]:
     """Parse ``git blame --porcelain`` output into line -> BlameInfo.
 
-    Attributes (author, author-time) belong to a commit and are repeated in
-    the output only when the commit changes; later hunks of the same commit
-    carry them forward.
+    Attributes (author, author-time) belong to a commit and are normally
+    emitted only on its first appearance. Later hunks reuse a parse-local
+    cache, including when other commits appear between them.
     """
     lines = text.splitlines()
     result: dict[int, BlameInfo] = {}
     attrs: dict[str, str] = {}
-    last_commit: str | None = None
+    commit_attrs: dict[str, dict[str, str]] = {}
     current_start = 0
     current_count = 0
     has_group = False
@@ -78,9 +82,7 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
             finish()
             parts = raw.split()
             commit = parts[0]
-            if commit != last_commit:
-                attrs = {"commit": commit}
-                last_commit = commit
+            attrs = commit_attrs.setdefault(commit, {"commit": commit})
             current_start = int(parts[2])
             current_count = int(parts[3]) if len(parts) > 3 else 1
             has_group = True
@@ -118,7 +120,10 @@ def blame_for_file(
     which behaves correctly across submodules and worktrees.
     """
     cwd = repo_root if repo_root is not None else path.parent
-    arg = path.relative_to(cwd).as_posix() if repo_root is not None else path.name
+    try:
+        arg = path.relative_to(cwd).as_posix() if repo_root is not None else path.name
+    except ValueError as exc:
+        raise BlameError(f"blame path is outside repository root: {path}") from exc
     try:
         completed = subprocess.run(
             [git, "blame", "--porcelain", "--", arg],
@@ -128,7 +133,9 @@ def blame_for_file(
             timeout=timeout,
             check=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        raise BlameTimeoutError(f"blame timed out for {arg}") from exc
+    except (FileNotFoundError, OSError) as exc:
         raise BlameError(f"blame failed for {arg}") from exc
     if completed.returncode != 0:
         raise BlameError(f"blame failed for {arg}: {completed.stderr.strip()}")

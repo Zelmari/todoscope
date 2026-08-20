@@ -21,8 +21,10 @@ from todoscope.ai import (
     payload_characters,
 )
 from todoscope.blame import (
+    BLAME_TIMEOUT_SECONDS,
     BLAME_TOTAL_BUDGET_SECONDS,
     BlameError,
+    BlameTimeoutError,
     blame_for_file,
 )
 from todoscope.config import ConfigError, discover_project_root, load_config
@@ -112,7 +114,12 @@ def _rule_description(source: str) -> str:
 
 
 def _is_interactive() -> bool:
-    return sys.stdin.isatty() and sys.stdout.isatty()
+    try:
+        stdin_tty = getattr(sys.stdin, "isatty", lambda: False)()
+        stdout_tty = getattr(sys.stdout, "isatty", lambda: False)()
+    except (OSError, ValueError):
+        return False
+    return bool(stdin_tty and stdout_tty)
 
 
 def _prompt_override(relative: str, source: str, ai_enabled: bool) -> bool:
@@ -299,14 +306,32 @@ def main(
         blames = {}
         paths = sorted({indexed.finding.path for indexed in findings})
         blame_started = time.monotonic()
-        for rel_path in paths:
-            if time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS:
+        for index, rel_path in enumerate(paths):
+            elapsed = time.monotonic() - blame_started
+            remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
+            if remaining <= 0:
                 blame_budget_exceeded = True
                 break
+            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
             try:
-                blames[rel_path] = blame_for_file(root / rel_path, repo_root=root)
+                blames[rel_path] = blame_for_file(
+                    root / rel_path,
+                    repo_root=root,
+                    timeout=timeout,
+                )
+            except BlameTimeoutError:
+                if budget_limited:
+                    blame_budget_exceeded = True
+                    break
             except BlameError:
                 pass
+            if (
+                index < len(paths) - 1
+                and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
+            ):
+                blame_budget_exceeded = True
+                break
         blame_missing = len(paths) - len(blames)
 
     if args.verbose:

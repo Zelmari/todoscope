@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from todoscope.ai import AnalysisItem, AnalysisResult
+from todoscope.blame import BlameInfo
 from todoscope.config import load_config
 from todoscope.discovery import ScanStats
 from todoscope.extraction import Finding
@@ -16,6 +17,7 @@ from todoscope.report import (
     AI_SKIPPED_SECONDARY_FAILED,
     AI_SKIPPED_UNSAFE_ENV,
     QUIET_AI_CONFLICT,
+    blame_detail_line,
     marker_label,
     no_findings_line,
     quiet_report,
@@ -153,6 +155,17 @@ def test_ai_skip_line_constants_are_distinct() -> None:
         AI_SKIPPED_SECONDARY_FAILED,
     )
     assert len(set(constants)) == len(constants)
+
+
+def test_blame_detail_line_falls_back_for_missing_metadata() -> None:
+    committed = BlameInfo(commit="a" * 40, author="", date="", committed_date="")
+    assert (
+        blame_detail_line(committed)
+        == "   Authored by Unknown · unknown date · aaaaaaa"
+    )
+
+    uncommitted = BlameInfo(commit="0" * 64, author="", date="", committed_date="")
+    assert blame_detail_line(uncommitted) == "   Not yet committed"
 
 
 def test_quiet_ai_conflict_message() -> None:

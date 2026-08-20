@@ -178,6 +178,20 @@ def test_validate_response_accepts_valid_data() -> None:
     assert result.overview == "A summary."
 
 
+def test_validate_response_sorts_items_by_id() -> None:
+    result = validate_response(
+        {
+            "items": [
+                {"id": 2, "interpretation": "Second.", "priority": "Low"},
+                {"id": 1, "interpretation": "First.", "priority": "High"},
+            ],
+            "overview": "A summary.",
+        },
+        [1, 2],
+    )
+    assert [item.id for item in result.items] == [1, 2]
+
+
 def test_validate_response_rejects_unknown_id() -> None:
     with pytest.raises(ResponseValidationError, match="unknown id"):
         validate_response(

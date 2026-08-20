@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 import pytest
 
-from todoscope.cli import PROG, build_parser, main
+from todoscope.cli import PROG, _is_interactive, build_parser, main
 
 
 def test_help_exits_successfully(capsys: pytest.CaptureFixture[str]) -> None:
@@ -32,6 +32,28 @@ def test_build_parser_returns_argparse_parser() -> None:
     parser = build_parser()
     assert parser.prog == PROG
     assert parser.description == "Find maintenance comments in source code."
+
+
+def test_is_interactive_handles_missing_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("todoscope.cli.sys.stdin", None)
+    monkeypatch.setattr("todoscope.cli.sys.stdout", None)
+    assert not _is_interactive()
+
+
+@pytest.mark.parametrize("error", [OSError("closed"), ValueError("closed")])
+def test_is_interactive_handles_unusable_streams(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    class UnusableStream:
+        def isatty(self) -> bool:
+            raise error
+
+    stream = UnusableStream()
+    monkeypatch.setattr("todoscope.cli.sys.stdin", stream)
+    monkeypatch.setattr("todoscope.cli.sys.stdout", stream)
+    assert not _is_interactive()
 
 
 def test_module_entry_point_succeeds() -> None:

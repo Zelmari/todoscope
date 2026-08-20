@@ -92,7 +92,9 @@ def blame_detail_line(info) -> str:
         return "   Blame unavailable"
     if info.uncommitted:
         return "   Not yet committed"
-    return f"   Authored by {info.author} · {info.date} · {info.commit[:7]}"
+    author = info.author or "Unknown"
+    authored_date = info.date or "unknown date"
+    return f"   Authored by {author} · {authored_date} · {info.commit[:7]}"
 
 
 def age_detail_line(info, *, today: date | None = None) -> str:

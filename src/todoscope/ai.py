@@ -166,4 +166,5 @@ def validate_response(data: Any, expected_ids: list[int]) -> AnalysisResult:
     missing = expected - seen
     if missing:
         raise ResponseValidationError(f"missing ids: {sorted(missing)}")
+    parsed.sort(key=lambda item: item.id)
     return AnalysisResult(items=tuple(parsed), overview=overview)

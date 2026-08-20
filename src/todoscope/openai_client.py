@@ -83,15 +83,17 @@ def analyze(
     ``response_format`` may be ``{}`` to skip the structured-output hint
     entirely; the client-side validation below is never weakened.
     """
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise AiRequestError("a non-empty API key is required")
     if response_format is None:
         response_format = _default_format()
-    if client is None:
-        client = OpenAI(api_key=api_key, max_retries=0)
 
     kwargs: dict[str, Any] = {}
     if response_format:
         kwargs["response_format"] = response_format
     try:
+        if client is None:
+            client = OpenAI(api_key=api_key, max_retries=0)
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -104,6 +106,8 @@ def analyze(
     except OpenAIError as exc:
         raise AiRequestError(f"the AI request failed: {exc}") from exc
 
+    if not response.choices:
+        raise AiRequestError("the AI response contained no choices")
     content = response.choices[0].message.content
     if not isinstance(content, str):
         raise AiRequestError("the AI response contained no text")
