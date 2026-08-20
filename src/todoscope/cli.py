@@ -15,6 +15,7 @@ from pathlib import Path
 from todoscope.ai import (
     AiEligibility,
     AiSkipReason,
+    AnalysisResult,
     ai_eligibility,
     build_ai_items,
     effective_limit,
@@ -24,19 +25,26 @@ from todoscope.blame import (
     BLAME_TIMEOUT_SECONDS,
     BLAME_TOTAL_BUDGET_SECONDS,
     BlameError,
+    BlameInfo,
     BlameTimeoutError,
     blame_for_file,
 )
-from todoscope.config import ConfigError, discover_project_root, load_config
+from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
+    ConfirmFn,
     build_override,
     check_ignored,
     load_gitignore_spec,
     target_has_symlink_component,
 )
 from todoscope.keys import env_file_is_ignored, load_keys
-from todoscope.openai_client import AiOutcomeKind, run_ai_analysis
+from todoscope.openai_client import (
+    AiOutcomeKind,
+    ConfirmSecondaryFn,
+    StatusFactory,
+    run_ai_analysis,
+)
 from todoscope.report import (
     AI_SKIPPED_NO_KEY,
     AI_SKIPPED_NO_MODEL,
@@ -140,7 +148,7 @@ def _prompt_secondary() -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
-def _ai_skip_line(reason: AiSkipReason, config) -> str | None:
+def _ai_skip_line(reason: AiSkipReason, config: Config) -> str | None:
     if reason is AiSkipReason.NO_MODEL:
         return AI_SKIPPED_NO_MODEL
     if reason is AiSkipReason.UNSAFE_ENV:
@@ -163,7 +171,7 @@ def _outcome_skip_line(kind: AiOutcomeKind) -> str:
 def _json_ai_state(
     reason: AiSkipReason,
     outcome_kind: AiOutcomeKind | None,
-    ai_result,
+    ai_result: AnalysisResult | None,
 ) -> tuple[str | None, str | None]:
     """Map AI outcome to JSON status/reason, never exposing keys."""
     if ai_result is not None:
@@ -181,9 +189,9 @@ def main(
     argv: list[str] | None = None,
     *,
     interactive: bool | None = None,
-    confirm=None,
-    confirm_secondary=None,
-    status=None,
+    confirm: ConfirmFn | None = None,
+    confirm_secondary: ConfirmSecondaryFn | None = None,
+    status: StatusFactory | None = None,
 ) -> int:
     """Parse arguments and return a numeric exit code."""
     parser = build_parser()
@@ -281,6 +289,8 @@ def main(
     ai_failure_line: str | None = None
     outcome_kind: AiOutcomeKind | None = None
     if eligibility.reason is AiSkipReason.ELIGIBLE:
+        assert items is not None
+        assert config.model is not None
         if status is None:
             status = StatusContext
         if confirm_secondary is None:
@@ -299,7 +309,7 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
-    blames: dict[str, dict[int, object]] | None = None
+    blames: dict[str, dict[int, BlameInfo]] | None = None
     blame_missing = 0
     blame_budget_exceeded = False
     if do_history:

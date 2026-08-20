@@ -7,7 +7,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from todoscope.ai import AnalysisResult
+from todoscope.ai import AnalysisItem, AnalysisResult
 from todoscope.blame import BlameInfo
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
@@ -82,11 +82,11 @@ def _finding_line(indexed: IndexedFinding) -> str:
     return f"{indexed.id}. {finding.path}:{finding.line}: {finding.marker}{suffix}"
 
 
-def _ai_detail_line(item) -> str:
+def _ai_detail_line(item: AnalysisItem) -> str:
     return f"   AI: {item.interpretation} ({item.priority})"
 
 
-def blame_detail_line(info) -> str:
+def blame_detail_line(info: BlameInfo | None) -> str:
     """Attribution line for a finding (blame data never enters the AI)."""
     if info is None:
         return "   Blame unavailable"
@@ -97,7 +97,7 @@ def blame_detail_line(info) -> str:
     return f"   Authored by {author} · {authored_date} · {info.commit[:7]}"
 
 
-def age_detail_line(info, *, today: date | None = None) -> str:
+def age_detail_line(info: BlameInfo | None, *, today: date | None = None) -> str:
     """Describe time since the finding's current line was committed."""
     if info is None or (not info.uncommitted and not info.committed_date):
         return "   Age unavailable"
@@ -111,7 +111,7 @@ def age_detail_line(info, *, today: date | None = None) -> str:
     return f"   Age: {days} {day_word} (committed {info.committed_date})"
 
 
-def _age_entry(info, *, today: date | None = None) -> dict[str, Any]:
+def _age_entry(info: BlameInfo | None, *, today: date | None = None) -> dict[str, Any]:
     if info is None or (not info.uncommitted and not info.committed_date):
         return {"status": "unavailable", "days": None, "committed": None}
     if info.uncommitted:

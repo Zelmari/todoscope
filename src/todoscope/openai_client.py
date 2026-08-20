@@ -9,6 +9,8 @@ secondary-key retry requires interactive confirmation and the same model.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -24,6 +26,9 @@ from todoscope.ai import (
 from todoscope.keys import KeyInfo
 
 REQUEST_TIMEOUT_SECONDS = 30.0
+
+ConfirmSecondaryFn = Callable[[], bool]
+StatusFactory = Callable[[], AbstractContextManager[object]]
 
 RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -92,9 +97,8 @@ def analyze(
     if response_format:
         kwargs["response_format"] = response_format
     try:
-        if client is None:
-            client = OpenAI(api_key=api_key, max_retries=0)
-        response = client.chat.completions.create(
+        active_client = client or OpenAI(api_key=api_key, max_retries=0)
+        response = active_client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -140,8 +144,8 @@ def run_ai_analysis(
     keys: KeyInfo,
     *,
     interactive: bool,
-    confirm_secondary=None,
-    status=None,
+    confirm_secondary: ConfirmSecondaryFn | None = None,
+    status: StatusFactory | None = None,
 ) -> AiOutcome:
     """Primary request; confirmed secondary retry with the SAME model.
 
@@ -149,6 +153,9 @@ def run_ai_analysis(
     an interactive terminal, and an explicit ``y`` answer. There is exactly
     one retry, and only after the primary request failed.
     """
+    if keys.primary is None:
+        return AiOutcome(AiOutcomeKind.PRIMARY_FAILED)
+
     if status is not None:
         with status():
             try:

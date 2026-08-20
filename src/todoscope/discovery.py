@@ -21,8 +21,6 @@ from todoscope.config import Config, ConfigError
 GITIGNORE_SOURCE = "gitignore"
 CONFIG_SOURCE = "configuration"
 
-_MISSING = object()
-
 
 class IgnoredTargetError(Exception):
     """The explicitly requested target is ignored by a rule."""
@@ -112,7 +110,7 @@ def _chain_for(
     project_root: Path,
     directory: Path,
     root_spec: pathspec.PathSpec | None,
-    cache: dict[Path, object],
+    cache: dict[Path, pathspec.PathSpec | None],
 ) -> tuple[IgnoreSource, ...]:
     """Ignore sources from the project root down to ``directory`` inclusive."""
     chain: list[IgnoreSource] = []
@@ -121,10 +119,9 @@ def _chain_for(
     current = project_root
     for part in directory.relative_to(project_root).parts:
         current = current / part
-        spec = cache.get(current, _MISSING)
-        if spec is _MISSING:
-            spec = load_gitignore_spec(current)
-            cache[current] = spec
+        if current not in cache:
+            cache[current] = load_gitignore_spec(current)
+        spec = cache[current]
         if spec is not None:
             chain.append(IgnoreSource(current, spec))
     return tuple(chain)
@@ -258,7 +255,7 @@ def discover_files(
 
     if spec is None:
         spec = load_gitignore_spec(project_root)
-    spec_cache: dict[Path, object] = {}
+    spec_cache: dict[Path, pathspec.PathSpec | None] = {}
 
     def handle_file(path: Path, chain: tuple[IgnoreSource, ...]) -> None:
         rel = relative_posix(path, project_root)
@@ -309,10 +306,9 @@ def discover_files(
                         else:
                             stats.ignored_by_config += 1
                         continue
-                    child_spec = spec_cache.get(path, _MISSING)
-                    if child_spec is _MISSING:
-                        child_spec = load_gitignore_spec(path)
-                        spec_cache[path] = child_spec
+                    if path not in spec_cache:
+                        spec_cache[path] = load_gitignore_spec(path)
+                    child_spec = spec_cache[path]
                     if child_spec is not None:
                         subdirs.append(
                             (path, chain + (IgnoreSource(path, child_spec),))

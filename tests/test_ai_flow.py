@@ -111,6 +111,21 @@ def test_no_secondary_key_is_plain_failure(monkeypatch) -> None:
     assert outcome.kind is AiOutcomeKind.PRIMARY_FAILED
 
 
+def test_no_primary_key_fails_without_an_attempt(monkeypatch) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("analyze must not be called without a primary key")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", forbidden)
+    no_primary = KeyInfo(
+        primary=None,
+        primary_source="none",
+        secondary="sk",
+        secondary_source="shell",
+    )
+    outcome = run_ai_analysis(ITEMS, "m", no_primary, interactive=True)
+    assert outcome.kind is AiOutcomeKind.PRIMARY_FAILED
+
+
 def test_secondary_failure_is_reported(monkeypatch) -> None:
     def fake_analyze(items, model, api_key, **kwargs):
         raise AiRequestError(f"{api_key} down")
