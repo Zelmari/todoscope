@@ -12,6 +12,7 @@
 ### Changed
 
 - Pyright now checks application code in CI and before tagged publication.
+- GitHub workflows and examples now use the Node 24-based checkout action.
 - The parsing directory is an explicit Python subpackage, and stale or
   deprecated package metadata has been removed.
 
