@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.2 (2026-08-20)
+
+### Fixed
+
+- Corrected the public `scan_files` return annotation and tightened the
+  internal AI, history, reporting, and discovery-cache type contracts.
+- AI analysis now fails cleanly without attempting a request when invoked
+  without a primary API key.
+
+### Changed
+
+- Pyright now checks application code in CI and before tagged publication.
+- The parsing directory is an explicit Python subpackage, and stale or
+  deprecated package metadata has been removed.
+
+
 ## 0.10.1 (2026-08-20)
 
 ### Fixed
