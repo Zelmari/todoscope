@@ -129,3 +129,92 @@ def test_local_scan_is_unaffected_by_secrets(tmp_path, monkeypatch, capsys) -> N
     assert result == 0
     assert "possible credentials were found" not in captured.out
     assert "1. src/app.py:1: TODO" in captured.out
+
+
+def _write_clean_project(tmp_path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text(
+        "# TODO: clean up\n"
+        "# TODO: rotate the sk-abcdefghijklmnopqrstuvwxyz01234567 key\n"
+        "# TODO: AWS credentials were rotated, update AKIAIOSFODNN7EXAMPLE\n"
+    )
+
+
+def test_check_secrets_lists_flagged_findings(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src"), "--check-secrets"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Possible credentials in comments" in captured.out
+    assert "app.py:2: TODO" in captured.out
+    assert "openai-style-api-key" in captured.out
+    assert "app.py:3: TODO" in captured.out
+    assert "aws-access-key-id" in captured.out
+
+
+def test_check_secrets_without_flag_shows_nothing(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src")])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Possible credentials in comments" not in captured.out
+
+
+def test_check_secrets_quiet_conflict(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src"), "--quiet", "--check-secrets"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "--quiet and --check-secrets cannot be used together." in captured.err
+    assert "Possible credentials" not in captured.out
+
+
+def test_check_secrets_json_shape(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src"), "--check-secrets", "--format", "json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    data = json.loads(captured.out)
+    assert [entry["line"] for entry in data["secrets"]] == [2, 3]
+    assert data["secrets"][0]["rules"] == ["openai-style-api-key"]
+    assert data["secrets"][1]["rules"] == ["aws-access-key-id"]
+
+
+def test_check_secrets_json_null_without_flag(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src"), "--format", "json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    data = json.loads(captured.out)
+    assert data["secrets"] is None
+
+
+def test_check_secrets_sarif_emits_error_results(tmp_path, capsys) -> None:
+    _write_clean_project(tmp_path)
+    result = main([str(tmp_path / "src"), "--check-secrets", "--format", "sarif"])
+    captured = capsys.readouterr()
+    assert result == 0
+    data = json.loads(captured.out)
+    rules = [rule["id"] for rule in data["runs"][0]["tool"]["driver"]["rules"]]
+    assert "credential-in-comment" in rules
+    secret_results = [
+        r for r in data["runs"][0]["results"] if r["ruleId"] == "credential-in-comment"
+    ]
+    assert [r["level"] for r in secret_results] == ["error", "error"]
+    assert secret_results[0]["properties"]["rules"] == ["openai-style-api-key"]
+
+
+def test_check_secrets_ai_is_still_refused(tmp_path, monkeypatch, capsys) -> None:
+    _write_clean_project(tmp_path)
+    (tmp_path / ".todoscope.json").write_text('{"model": "m"}')
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-shell-key")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("no AI request may be made")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fail_if_called)
+    result = main([str(tmp_path / "src"), "--ai", "--check-secrets"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "possible credentials were found" in captured.out
+    assert "Possible credentials in comments" in captured.out

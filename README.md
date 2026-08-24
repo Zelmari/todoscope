@@ -45,6 +45,7 @@ todoscope src/main.py         # scan one file
 todoscope .                   # scan the whole project
 todoscope src/ --ai           # add AI interpretations and priorities
 todoscope src/ --ai --no-cache  # bypass the local AI result cache
+todoscope src/ --check-secrets  # list comments that look like credentials
 todoscope src/ --blame        # add who-authored-each-finding via git blame
 todoscope src/ --age          # add time since each finding was committed
 todoscope src/ --age --blame  # show both age and attribution
@@ -161,6 +162,12 @@ keys, tokens, private-key headers, credential assignments). If any finding
 looks like a secret, the AI request is refused and the suspicious findings
 are listed locally — the local report is unaffected. Detection is
 conservative: it flags unambiguous secret shapes, never prose.
+
+`--check-secrets` runs this screening on any scan, with or without AI: it
+appends a `Possible credentials in comments` section listing each flagged
+finding with the matched rule names, adds a `secrets` array to JSON reports
+(`null` without the flag), and emits `credential-in-comment` error results
+in SARIF. It is rejected together with `--quiet`.
 
 ### Using DeepSeek (or another OpenAI-compatible provider)
 

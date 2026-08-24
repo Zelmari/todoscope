@@ -89,6 +89,22 @@ def secrets_skip_line(secret_findings: tuple[IndexedFinding, ...]) -> str:
     return "\n".join(lines)
 
 
+SecretEntries = tuple[tuple[IndexedFinding, tuple[str, ...]], ...]
+
+
+def secrets_section(entries: SecretEntries) -> str:
+    """Listing of possible credentials, one canonical line plus rule names."""
+    lines = ["Possible credentials in comments", ""]
+    for indexed, rules in entries:
+        finding = indexed.finding
+        suffix = f": {finding.text}" if finding.text else ""
+        lines.append(
+            f"   {finding.path}:{finding.line}: {finding.marker}{suffix}"
+            f" — {', '.join(rules)}"
+        )
+    return "\n".join(lines)
+
+
 def _finding_line(indexed: IndexedFinding) -> str:
     """The one canonical finding line used by every text mode."""
     finding = indexed.finding
@@ -150,11 +166,15 @@ def standard_report(
     blames: dict[str, dict[int, BlameInfo]] | None = None,
     ages: dict[str, dict[int, BlameInfo]] | None = None,
     ai_from_cache: bool = False,
+    secret_entries: SecretEntries | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
     if not findings:
         lines.append(no_findings_line(config))
+        if secret_entries:
+            lines.append("")
+            lines.append(secrets_section(secret_entries))
         return "\n".join(lines)
 
     lines.append("")
@@ -175,6 +195,9 @@ def standard_report(
             block.append(_ai_detail_line(item))
         blocks.append("\n".join(block))
     lines.append("\n\n".join(blocks))
+    if secret_entries:
+        lines.append("")
+        lines.append(secrets_section(secret_entries))
     if ai_result is not None:
         lines.append("")
         lines.append("Overall AI summary")
@@ -210,6 +233,7 @@ def json_report(
     age_filter: dict[str, Any] | None = None,
     changed_ref: str | None = None,
     ai_from_cache: bool = False,
+    secret_entries: SecretEntries | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -282,7 +306,26 @@ def json_report(
         }
         | ({"age_filter": age_filter} if age_filter is not None else {})
         | ({"changed_ref": changed_ref} if changed_ref is not None else {})
+        | {
+            "secrets": (
+                _secret_json(secret_entries) if secret_entries is not None else None
+            )
+        }
     )
+
+
+def _secret_json(entries: SecretEntries) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": indexed.id,
+            "marker": indexed.finding.marker,
+            "text": indexed.finding.text,
+            "path": indexed.finding.path,
+            "line": indexed.finding.line,
+            "rules": list(rules),
+        }
+        for indexed, rules in entries
+    ]
 
 
 def verbose_report(
@@ -301,6 +344,7 @@ def verbose_report(
     age_filter_removed: int | None = None,
     changed_files: int | None = None,
     ai_from_cache: bool | None = None,
+    secrets_detected: int | None = None,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -340,6 +384,8 @@ def verbose_report(
         lines.append(f"Changed files scanned: {changed_files}")
     if ai_from_cache is not None:
         lines.append(f"AI results from cache: {'yes' if ai_from_cache else 'no'}")
+    if secrets_detected is not None:
+        lines.append(f"Possible credentials in comments: {secrets_detected}")
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"

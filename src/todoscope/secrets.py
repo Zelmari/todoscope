@@ -91,3 +91,14 @@ def findings_with_secrets(
     return tuple(
         indexed for indexed in findings if secret_matches(indexed.finding.text)
     )
+
+
+def secret_entries(
+    findings: tuple[IndexedFinding, ...],
+) -> tuple[tuple[IndexedFinding, tuple[str, ...]], ...]:
+    """Pairs of finding and matching rule names, in finding order."""
+    return tuple(
+        (indexed, secret_matches(indexed.finding.text))
+        for indexed in findings
+        if secret_matches(indexed.finding.text)
+    )

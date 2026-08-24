@@ -56,6 +56,7 @@ from todoscope.report import (
     AI_SKIPPED_SECRETS,
     AI_SKIPPED_UNSAFE_ENV,
     QUIET_AI_CONFLICT,
+    SecretEntries,
     json_report,
     payload_too_large_message,
     quiet_report,
@@ -65,7 +66,7 @@ from todoscope.report import (
 )
 from todoscope.sarif import sarif_report
 from todoscope.scan import scan
-from todoscope.secrets import findings_with_secrets
+from todoscope.secrets import findings_with_secrets, secret_entries
 from todoscope.status import StatusContext
 
 PROG = "todoscope"
@@ -139,6 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cache",
         action="store_true",
         help="ignore the local AI result cache",
+    )
+    parser.add_argument(
+        "--check-secrets",
+        action="store_true",
+        help="list findings whose comment text looks like a credential",
     )
     return parser
 
@@ -319,6 +325,8 @@ def main(
         print("--quiet and --min-age cannot be used together.", file=sys.stderr)
     if args.quiet and args.max_age is not None:
         print("--quiet and --max-age cannot be used together.", file=sys.stderr)
+    if args.quiet and args.check_secrets:
+        print("--quiet and --check-secrets cannot be used together.", file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
     do_history = (args.blame or args.age or age_filtering) and not args.quiet
@@ -381,6 +389,10 @@ def main(
         )
         removed_by_age = len(findings) - len(filtered)
         findings = filtered
+
+    secrets_found: SecretEntries | None = None
+    if args.check_secrets and not args.quiet:
+        secrets_found = secret_entries(findings)
 
     eligibility = ai_eligibility(
         config,
@@ -468,6 +480,9 @@ def main(
                     if eligibility.reason is AiSkipReason.ELIGIBLE
                     else None
                 ),
+                secrets_detected=(
+                    len(secrets_found) if secrets_found is not None else None
+                ),
                 **blame_kwargs,
             ),
             file=sys.stderr,
@@ -491,6 +506,7 @@ def main(
             blames if args.blame else None,
             blames if args.age else None,
             ai_from_cache=ai_from_cache,
+            secret_entries=secrets_found,
         )
 
     if args.format == "json":
@@ -520,6 +536,7 @@ def main(
             ),
             changed_ref=args.changed,
             ai_from_cache=ai_from_cache,
+            secret_entries=secrets_found,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0
@@ -532,6 +549,7 @@ def main(
             ai_result=ai_result,
             blames=blames if args.blame else None,
             ages=blames if args.age else None,
+            secret_entries=secrets_found,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

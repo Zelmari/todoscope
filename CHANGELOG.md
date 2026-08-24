@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.17.0 (2026-08-24)
+
+### Added
+
+- `--check-secrets`: screens every scan for credential-shaped comments with
+  or without AI. Text reports gain a "Possible credentials in comments"
+  section (canonical lines plus matched rule names), JSON reports gain a
+  `secrets` array (`null` without the flag), and SARIF gains
+  `credential-in-comment` error results. AI is still refused when secrets
+  are found. Rejected together with `--quiet`.
+
+
 ## 0.16.0 (2026-08-24)
 
 ### Changed

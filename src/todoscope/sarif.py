@@ -14,12 +14,13 @@ from typing import Any
 from todoscope.ai import AnalysisResult
 from todoscope.blame import BlameInfo
 from todoscope.config import Config
-from todoscope.report import age_entry
+from todoscope.report import SecretEntries, age_entry
 from todoscope.scan import IndexedFinding
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 INFORMATION_URI = "https://github.com/Zelmari/todoscope"
+SECRET_RULE_ID = "credential-in-comment"
 
 _PRIORITY_LEVELS: dict[str, str] = {
     "High": "error",
@@ -70,6 +71,7 @@ def sarif_report(
     ai_result: AnalysisResult | None = None,
     blames: dict[str, dict[int, BlameInfo]] | None = None,
     ages: dict[str, dict[int, BlameInfo]] | None = None,
+    secret_entries: SecretEntries | None = None,
 ) -> dict[str, Any]:
     """Deterministic SARIF 2.1.0 document for the given findings."""
     ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
@@ -101,6 +103,41 @@ def sarif_report(
                 "properties": _properties(indexed, ai_by_id, blames, ages),
             }
         )
+    rules = [_rule(marker) for marker in config.markers]
+    if secret_entries:
+        rules.append(
+            {
+                "id": SECRET_RULE_ID,
+                "name": "Possible credential in comment",
+                "shortDescription": {
+                    "text": "Comment text matches a known credential shape"
+                },
+            }
+        )
+        for indexed, matched in secret_entries:
+            finding = indexed.finding
+            message = (
+                f"{finding.marker}: {finding.text}" if finding.text else finding.marker
+            )
+            results.append(
+                {
+                    "ruleId": SECRET_RULE_ID,
+                    "level": "error",
+                    "message": {"text": message},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": finding.path},
+                                "region": {"startLine": finding.line},
+                            }
+                        }
+                    ],
+                    "properties": {
+                        "finding_id": indexed.id,
+                        "rules": list(matched),
+                    },
+                }
+            )
     return {
         "$schema": SARIF_SCHEMA,
         "version": SARIF_VERSION,
@@ -111,7 +148,7 @@ def sarif_report(
                         "name": "todoscope",
                         "version": version("todoscope"),
                         "informationUri": INFORMATION_URI,
-                        "rules": [_rule(marker) for marker in config.markers],
+                        "rules": rules,
                     }
                 },
                 "results": results,
