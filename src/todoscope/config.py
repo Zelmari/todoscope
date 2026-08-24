@@ -34,6 +34,12 @@ EXTENSION_LANGUAGES: dict[str, Language] = {
     ".cxx": Language.CPP,
     ".hpp": Language.CPP,
     ".cs": Language.CSHARP,
+    ".php": Language.PHP,
+    ".rb": Language.RUBY,
+    ".kt": Language.KOTLIN,
+    ".swift": Language.SWIFT,
+    ".sh": Language.SHELL,
+    ".bash": Language.SHELL,
 }
 
 _MARKER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\Z")

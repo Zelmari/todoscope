@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.22.0 (2026-08-24)
+
+### Added
+
+- New languages: PHP (`.php`), Ruby (`.rb`), Kotlin (`.kt`), Swift
+  (`.swift`), and Shell (`.sh .bash`). Grammar-aware extraction correctly
+  ignores PHP heredoc/nowdoc, Ruby `%q/%Q` and heredocs, Kotlin raw
+  strings, Swift multiline strings (with nested block comments), and Bash
+  quoted/heredoc content. Default scanned extensions are unchanged.
+
+
 ## 0.21.0 (2026-08-24)
 
 ### Added

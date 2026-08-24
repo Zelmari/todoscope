@@ -97,3 +97,66 @@ def test_new_extensions_are_configurable(tmp_path) -> None:
     (tmp_path / ".todoscope.json").write_text('{"extensions": [".java", ".go", ".cs"]}')
     config = load_config(tmp_path)
     assert config.extensions == (".java", ".go", ".cs")
+
+
+LANGUAGE_PROOFS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "php",
+        "<?php\n"
+        "// TODO: php comment\n"
+        "$a = '// TODO: single-quoted';\n"
+        '$b = "// TODO: double-quoted";\n'
+        "$c = <<<EOT\n// TODO: heredoc\nEOT;\n"
+        "$d = <<<'EOT'\n// TODO: nowdoc\nEOT;\n"
+        "/* TODO: php block */\n",
+        ("php comment", "php block"),
+    ),
+    (
+        "ruby",
+        "# TODO: ruby comment\n"
+        "a = %q{# TODO: percent-q}\n"
+        "b = %Q{# TODO: percent-Q}\n"
+        "c = <<~HEREDOC\n# TODO: heredoc\nHEREDOC\n"
+        'd = "# TODO: string"\n',
+        ("ruby comment",),
+    ),
+    (
+        "kotlin",
+        "// TODO: kotlin comment\n"
+        'val s = """TODO: raw string"""\n'
+        "/* TODO: kotlin block */\n",
+        ("kotlin comment", "kotlin block"),
+    ),
+    (
+        "swift",
+        "// TODO: swift comment\n"
+        "/* outer /* TODO: nested */ done */\n"
+        'let s = """\nTODO: multiline string\n"""\n',
+        ("swift comment", "outer /* TODO: nested */ done"),
+    ),
+    (
+        "bash",
+        "# TODO: bash comment\n"
+        "echo 'TODO: single-quoted'\n"
+        'echo "TODO: double-quoted"\n'
+        "echo $'TODO: dollar-quoted'\n"
+        "cat <<EOF\nTODO: heredoc\nEOF\n"
+        "# TODO: second comment\n",
+        ("bash comment", "second comment"),
+    ),
+)
+
+
+@pytest.mark.parametrize(("name", "source", "expected"), LANGUAGE_PROOFS)
+def test_language_proofs(name: str, source: str, expected: tuple[str, ...]) -> None:
+    from todoscope.parsing.comments import Language, extract_comments
+
+    language = Language({"bash": "shell"}.get(name, name))
+    texts = [comment.text for comment in extract_comments(source, language)]
+    normalized = set()
+    for text in texts:
+        for prefix in ("//", "#", "/*"):
+            text = text.removeprefix(prefix)
+        text = text.removesuffix("*/")
+        normalized.add(text.strip().removeprefix("TODO:").strip())
+    assert normalized == set(expected), (name, texts)

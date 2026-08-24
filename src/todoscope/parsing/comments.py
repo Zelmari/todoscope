@@ -23,13 +23,18 @@ from enum import Enum
 from typing import Literal
 
 import tree_sitter
+import tree_sitter_bash as _bash
 import tree_sitter_c as _c
 import tree_sitter_c_sharp as _c_sharp
 import tree_sitter_cpp as _cpp
 import tree_sitter_go as _go
 import tree_sitter_java as _java
 import tree_sitter_javascript as _javascript
+import tree_sitter_kotlin as _kotlin
+import tree_sitter_php as _php
+import tree_sitter_ruby as _ruby
 import tree_sitter_rust as _rust
+import tree_sitter_swift as _swift
 import tree_sitter_typescript as _typescript
 
 CommentKind = Literal["line", "block"]
@@ -46,6 +51,11 @@ class Language(Enum):
     C = "c"
     CPP = "cpp"
     CSHARP = "csharp"
+    PHP = "php"
+    RUBY = "ruby"
+    KOTLIN = "kotlin"
+    SWIFT = "swift"
+    SHELL = "shell"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +68,12 @@ class Comment:
     end_line: int
 
 
-_TREE_SITTER_COMMENT_TYPES = ("comment", "line_comment", "block_comment")
+_TREE_SITTER_COMMENT_TYPES = (
+    "comment",
+    "line_comment",
+    "block_comment",
+    "multiline_comment",
+)
 
 _LANGUAGE_FACTORIES = {
     Language.JAVASCRIPT: _javascript.language,
@@ -70,6 +85,11 @@ _LANGUAGE_FACTORIES = {
     Language.C: _c.language,
     Language.CPP: _cpp.language,
     Language.CSHARP: _c_sharp.language,
+    Language.PHP: _php.language_php,
+    Language.RUBY: _ruby.language,
+    Language.KOTLIN: _kotlin.language,
+    Language.SWIFT: _swift.language,
+    Language.SHELL: _bash.language,
 }
 
 
