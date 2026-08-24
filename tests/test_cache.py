@@ -53,8 +53,9 @@ def test_cache_path_uses_xdg(monkeypatch) -> None:
 
 def test_cache_path_defaults_to_home_cache(monkeypatch) -> None:
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    assert cache_path().name == "ai-cache.json"
-    assert str(cache_path()).endswith("todoscope/ai-cache.json")
+    path = cache_path()
+    assert path.name == "ai-cache.json"
+    assert path.parent.name == "todoscope"
 
 
 def test_item_key_is_stable_and_sensitive_to_inputs() -> None:
