@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 
 import pytest
 
@@ -161,6 +162,7 @@ def test_install_hook_outside_repo(tmp_path, monkeypatch, capsys) -> None:
     assert "requires a regular Git repository" in captured.err
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="hooks are POSIX shell scripts")
 def test_hook_blocks_commits_with_staged_findings(tmp_path, monkeypatch) -> None:
     repo = _make_repo(tmp_path)
     monkeypatch.chdir(repo)
@@ -173,6 +175,7 @@ def test_hook_blocks_commits_with_staged_findings(tmp_path, monkeypatch) -> None
     assert "b.py:1: TODO: staged finding" in result.stdout
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="hooks are POSIX shell scripts")
 def test_hook_passes_without_staged_findings(tmp_path, monkeypatch) -> None:
     repo = _make_repo(tmp_path)
     monkeypatch.chdir(repo)
