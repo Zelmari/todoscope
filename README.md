@@ -116,6 +116,16 @@ keyed by project root, always covers the complete scan (age filters and
 `--changed` do not affect it), and is best-effort — a missing or corrupt
 baseline simply reports everything as new.
 
+### Ignoring findings
+
+A comment whose text contains a standalone `@ignore` token is suppressed
+everywhere: it never appears in reports, counts, AI analysis, or the CI
+gate, and JSON notes it under `skipped.ignored_by_directive`. The token
+must be a whole word (`# TODO: accepted @ignore`), so `x@ignore` or
+`@ignore,` do not match. Secret screening (`--check-secrets`) deliberately
+still flags suppressed comments — credentials in comments matter regardless
+of the directive.
+
 ## Pre-commit
 
 TodoScope can block commits that touch files containing findings:

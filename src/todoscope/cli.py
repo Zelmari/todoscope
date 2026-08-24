@@ -53,6 +53,7 @@ from todoscope.discovery import (
     load_gitignore_spec,
     target_has_symlink_component,
 )
+from todoscope.extraction import suppressed_by_directive
 from todoscope.gha import gha_report
 from todoscope.keys import env_file_is_ignored, load_keys
 from todoscope.openai_client import (
@@ -452,6 +453,14 @@ def main(
     duration = time.perf_counter() - started
     all_findings = findings
 
+    findings = tuple(
+        indexed
+        for indexed in all_findings
+        if not suppressed_by_directive(indexed.finding.text)
+    )
+    stats.ignored_by_directive = len(all_findings) - len(findings)
+    baseline_findings = findings
+
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
     if args.quiet and args.blame:
@@ -529,7 +538,7 @@ def main(
 
     secrets_found: SecretEntries | None = None
     if args.check_secrets and not args.quiet:
-        secrets_found = secret_entries(findings)
+        secrets_found = secret_entries(all_findings)
 
     gate_failed = False
     if args.fail:
@@ -543,10 +552,10 @@ def main(
     if args.diff:
         state_file = state_path(root)
         state = load_state(state_file)
-        current_keys = finding_keys(all_findings)
+        current_keys = finding_keys(baseline_findings)
         new_keys, removed_keys = diff_sets(previous_keys(state, root), current_keys)
         diff_new = tuple(
-            indexed for indexed in all_findings if finding_key(indexed) in new_keys
+            indexed for indexed in baseline_findings if finding_key(indexed) in new_keys
         )
         diff_removed = tuple(sorted(removed_keys))
         store_project(state, root, current_keys)

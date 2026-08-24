@@ -16,6 +16,17 @@ from todoscope.parsing.comments import Comment, Language, extract_comments
 
 _HASH_DELIMITER_LANGUAGES = frozenset({Language.PYTHON, Language.RUBY, Language.SHELL})
 
+IGNORE_DIRECTIVE = "@ignore"
+
+
+def suppressed_by_directive(text: str) -> bool:
+    """True when the comment text carries a standalone ``@ignore`` token.
+
+    The token must be a whole word: ``@ignore`` suppresses a finding, while
+    ``x@ignore`` or ``@ignore,`` do not.
+    """
+    return IGNORE_DIRECTIVE in text.split()
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:

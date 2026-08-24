@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0 (2026-08-24)
+
+### Added
+
+- `@ignore` directive: a comment text containing a standalone `@ignore`
+  token is suppressed everywhere — reports, counts, AI analysis, and the
+  CI gate — and JSON notes it under `skipped.ignored_by_directive`.
+  `--check-secrets` still screens suppressed comments.
+
+
 ## 0.24.0 (2026-08-24)
 
 ### Changed

@@ -47,6 +47,8 @@ class ScanStats:
     ignored_by_config: int = 0
     unreadable: int = 0
     symlinks: int = 0
+    ignored_by_directive: int = 0
+    """Findings suppressed by a standalone @ignore token."""
     serial_retry_chunks: int = 0
     """Chunks re-run serially because a pool worker crashed."""
 

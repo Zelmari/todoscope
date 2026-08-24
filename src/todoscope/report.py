@@ -192,6 +192,9 @@ def standard_report(
         if secret_entries:
             lines.append("")
             lines.append(secrets_section(secret_entries))
+        if diff_new is not None:
+            lines.append("")
+            lines.append(diff_section(diff_new, diff_removed))
         return "\n".join(lines)
 
     lines.append("")
@@ -322,6 +325,7 @@ def json_report(
             "skipped": {
                 "ignored_by_gitignore": stats.ignored_by_gitignore,
                 "ignored_by_config": stats.ignored_by_config,
+                "ignored_by_directive": stats.ignored_by_directive,
                 "unsupported": stats.unsupported,
                 "unreadable": stats.unreadable,
                 "symlinks": stats.symlinks,
@@ -450,6 +454,8 @@ def verbose_report(
             f"Diff since last scan: {diff_new_count} new, "
             f"{diff_removed_count or 0} removed"
         )
+    if stats.ignored_by_directive:
+        lines.append(f"Ignored via @ignore: {stats.ignored_by_directive}")
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"
