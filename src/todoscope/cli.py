@@ -34,6 +34,17 @@ from todoscope.blame import (
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files, staged_files
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
+from todoscope.diffstate import (
+    diff_sets,
+    finding_key,
+    finding_keys,
+    load_state,
+    previous_keys,
+    prune_state,
+    save_state,
+    state_path,
+    store_project,
+)
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
     ConfirmFn,
@@ -67,7 +78,7 @@ from todoscope.report import (
     verbose_report,
 )
 from todoscope.sarif import sarif_report
-from todoscope.scan import scan
+from todoscope.scan import IndexedFinding, scan
 from todoscope.secrets import findings_with_secrets, secret_entries
 from todoscope.status import StatusContext
 
@@ -156,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--uninstall-hook",
         action="store_true",
         help="remove the pre-commit hook installed by todoscope",
+    )
+    parser.add_argument(
+        "--diff",
+        action="store_true",
+        help="report findings added since the last scan",
     )
     parser.add_argument(
         "--no-cache",
@@ -434,6 +450,7 @@ def main(
         print(f"Error: {exc}", file=sys.stderr)
         return 3
     duration = time.perf_counter() - started
+    all_findings = findings
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
@@ -520,6 +537,22 @@ def main(
     elif args.fail_count is not None:
         gate_failed = len(findings) > args.fail_count
     gate_exit = FINDINGS_GATE_EXIT_CODE if gate_failed else 0
+
+    diff_new: tuple[IndexedFinding, ...] = ()
+    diff_removed: tuple[str, ...] = ()
+    if args.diff:
+        state_file = state_path(root)
+        state = load_state(state_file)
+        current_keys = finding_keys(all_findings)
+        new_keys, removed_keys = diff_sets(previous_keys(state, root), current_keys)
+        diff_new = tuple(
+            indexed for indexed in all_findings if finding_key(indexed) in new_keys
+        )
+        diff_removed = tuple(sorted(removed_keys))
+        store_project(state, root, current_keys)
+        prune_state(state)
+        if not save_state(state_file, state):
+            print("Warning: could not write the diff state.", file=sys.stderr)
 
     eligibility = ai_eligibility(
         config,
@@ -615,13 +648,15 @@ def main(
                 gate_enabled=args.fail or args.fail_count is not None,
                 gate_threshold=args.fail_count,
                 gate_failed=gate_failed,
+                diff_new_count=len(diff_new) if args.diff else None,
+                diff_removed_count=len(diff_removed) if args.diff else None,
                 **blame_kwargs,
             ),
             file=sys.stderr,
         )
 
     if args.quiet:
-        report = quiet_report(findings)
+        report = quiet_report(diff_new if args.diff else findings)
     else:
         skip_line = (
             ai_failure_line
@@ -639,6 +674,8 @@ def main(
             blames if args.age else None,
             ai_from_cache=ai_from_cache,
             secret_entries=secrets_found,
+            diff_new=diff_new if args.diff else None,
+            diff_removed=len(diff_removed),
         )
 
     if args.format == "json":
@@ -680,6 +717,8 @@ def main(
                 if args.fail or args.fail_count is not None
                 else None
             ),
+            diff_new=diff_new if args.diff else None,
+            diff_removed=diff_removed if args.diff else None,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return gate_exit

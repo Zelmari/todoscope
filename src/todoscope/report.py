@@ -105,6 +105,21 @@ def secrets_section(entries: SecretEntries) -> str:
     return "\n".join(lines)
 
 
+def diff_section(new_findings: tuple[IndexedFinding, ...], removed_count: int) -> str:
+    """Findings added since the last scan, plus the removed count."""
+    lines = ["New since last scan", ""]
+    if new_findings:
+        lines.extend(_finding_line(indexed) for indexed in new_findings)
+    else:
+        lines.append("No new findings.")
+    if removed_count:
+        word = "finding" if removed_count == 1 else "findings"
+        lines.append(
+            f"{removed_count} previously seen {word} disappeared since the last scan."
+        )
+    return "\n".join(lines)
+
+
 def _finding_line(indexed: IndexedFinding) -> str:
     """The one canonical finding line used by every text mode."""
     finding = indexed.finding
@@ -167,6 +182,8 @@ def standard_report(
     ages: dict[str, dict[int, BlameInfo]] | None = None,
     ai_from_cache: bool = False,
     secret_entries: SecretEntries | None = None,
+    diff_new: tuple[IndexedFinding, ...] | None = None,
+    diff_removed: int = 0,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -198,6 +215,9 @@ def standard_report(
     if secret_entries:
         lines.append("")
         lines.append(secrets_section(secret_entries))
+    if diff_new is not None:
+        lines.append("")
+        lines.append(diff_section(diff_new, diff_removed))
     if ai_result is not None:
         lines.append("")
         lines.append("Overall AI summary")
@@ -236,6 +256,8 @@ def json_report(
     ai_from_cache: bool = False,
     secret_entries: SecretEntries | None = None,
     gate: dict[str, Any] | None = None,
+    diff_new: tuple[IndexedFinding, ...] | None = None,
+    diff_removed: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -310,6 +332,7 @@ def json_report(
         | ({"changed_ref": changed_ref} if changed_ref is not None else {})
         | ({"staged": True} if staged else {})
         | ({"gate": gate} if gate is not None else {})
+        | ({"diff": _diff_json(diff_new, diff_removed)} if diff_new is not None else {})
         | {
             "secrets": (
                 _secret_json(secret_entries) if secret_entries is not None else None
@@ -332,6 +355,27 @@ def _secret_json(entries: SecretEntries) -> list[dict[str, Any]]:
     ]
 
 
+def _diff_json(
+    new_findings: tuple[IndexedFinding, ...],
+    removed: tuple[str, ...] | None,
+) -> dict[str, Any]:
+    return {
+        "new": [
+            {
+                "id": indexed.id,
+                "marker": indexed.finding.marker,
+                "text": indexed.finding.text,
+                "path": indexed.finding.path,
+                "line": indexed.finding.line,
+            }
+            for indexed in new_findings
+        ],
+        "new_count": len(new_findings),
+        "removed": list(removed or ()),
+        "removed_count": len(removed or ()),
+    }
+
+
 def verbose_report(
     target: str,
     project_root: Path,
@@ -352,6 +396,8 @@ def verbose_report(
     gate_enabled: bool = False,
     gate_threshold: int | None = None,
     gate_failed: bool = False,
+    diff_new_count: int | None = None,
+    diff_removed_count: int | None = None,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -398,6 +444,11 @@ def verbose_report(
         lines.append(
             f"Findings gate: enabled (threshold {threshold}), "
             f"failed: {'yes' if gate_failed else 'no'}"
+        )
+    if diff_new_count is not None:
+        lines.append(
+            f"Diff since last scan: {diff_new_count} new, "
+            f"{diff_removed_count or 0} removed"
         )
     if serial_retried_chunks:
         lines.append(

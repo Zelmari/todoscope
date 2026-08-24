@@ -54,6 +54,7 @@ todoscope src/ --min-age 90   # keep only findings at least 90 days old
 todoscope src/ --max-age 0    # keep only uncommitted findings
 todoscope src/ --changed main # scan only files differing from the main branch
 todoscope src/ --staged       # scan only files staged for commit
+todoscope src/ --diff         # report findings added since the last scan
 todoscope --install-hook      # install a pre-commit hook that gates staged findings
 todoscope --uninstall-hook    # remove the hook installed by todoscope
 todoscope src/ --quiet        # one numbered finding per line, nothing else
@@ -106,6 +107,14 @@ with `--blame`, `--age`, and the age filters. JSON reports include a
 refs fail with exit code 2. `--staged` does the same for files staged for
 commit (JSON reports set `"staged": true`), and cannot be combined with
 `--changed`.
+
+`--diff` reports findings added since the last `--diff` scan: a
+`New since last scan` section in text mode (with the number of findings
+that disappeared), the new findings' lines only in `--quiet` mode, and a
+`diff` object in JSON. The baseline lives in the user cache directory
+keyed by project root, always covers the complete scan (age filters and
+`--changed` do not affect it), and is best-effort — a missing or corrupt
+baseline simply reports everything as new.
 
 ## Pre-commit
 

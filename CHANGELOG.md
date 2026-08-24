@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.23.0 (2026-08-24)
+
+### Added
+
+- `--diff`: reports findings added since the last `--diff` scan. Text mode
+  gains a "New since last scan" section (plus the number of findings that
+  disappeared), `--quiet` prints only the new findings' lines, and JSON
+  gains a `diff` object. The baseline lives in the user cache directory
+  keyed by project root, always covers the complete scan, and is
+  best-effort.
+
+
 ## 0.22.1 (2026-08-24)
 
 ### Fixed
