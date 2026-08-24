@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0 (2026-08-24)
+
+### Added
+
+- `--changed REF`: scans only tracked files whose content differs from the
+  given git ref (uncommitted changes included, untracked files not). Ignore
+  and extension rules still apply; composes with `--blame`, `--age`, and
+  the age filters. JSON reports gain a `changed_ref` field. Unknown refs
+  fail with exit code 2.
+
+
 ## 0.13.0 (2026-08-24)
 
 ### Added

@@ -49,6 +49,7 @@ todoscope src/ --age          # add time since each finding was committed
 todoscope src/ --age --blame  # show both age and attribution
 todoscope src/ --min-age 90   # keep only findings at least 90 days old
 todoscope src/ --max-age 0    # keep only uncommitted findings
+todoscope src/ --changed main # scan only files differing from the main branch
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
@@ -89,6 +90,13 @@ rule per configured marker; AI priorities map to SARIF levels (High →
 are attached as result properties when requested. Verbose details and errors
 always go to stderr. Neither format ever contains API keys or environment
 values.
+
+`--changed REF` restricts the scan to tracked files whose content differs
+from the given git ref (uncommitted changes are included; untracked files
+are not). Ignore and extension rules still apply, and the option composes
+with `--blame`, `--age`, and the age filters. JSON reports include a
+`changed_ref` field. Requires a valid git ref and a Git repository; unknown
+refs fail with exit code 2.
 
 ## Configuration
 

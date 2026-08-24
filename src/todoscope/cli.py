@@ -30,6 +30,7 @@ from todoscope.blame import (
     blame_for_file,
     filter_by_age,
 )
+from todoscope.changed import ChangedError, changed_files
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
@@ -128,6 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         metavar="DAYS",
         help="keep only findings at most this many days old",
+    )
+    parser.add_argument(
+        "--changed",
+        metavar="REF",
+        help="scan only tracked files whose content differs from this git ref",
     )
     return parser
 
@@ -269,9 +275,30 @@ def main(
     keys = load_keys(root, spec)
     env_ignored = env_file_is_ignored(root, spec)
 
+    changed_set: set[str] | None = None
+    if args.changed is not None:
+        if not (root / ".git").exists():
+            print("Error: --changed requires a Git repository.", file=sys.stderr)
+            return 2
+        if shutil.which("git") is None:
+            print("Error: --changed requires the git executable.", file=sys.stderr)
+            return 2
+        try:
+            changed_set = set(changed_files(root, args.changed))
+        except ChangedError as exc:
+            print(f"Error: --changed failed: {exc}", file=sys.stderr)
+            return 2
+
     started = time.perf_counter()
     try:
-        findings, stats = scan(target, root, config, spec=spec, override=override)
+        findings, stats = scan(
+            target,
+            root,
+            config,
+            spec=spec,
+            override=override,
+            changed=changed_set,
+        )
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 3
@@ -422,6 +449,7 @@ def main(
                 ai_payload_characters=ai_payload_chars,
                 serial_retried_chunks=stats.serial_retry_chunks,
                 age_filter_removed=removed_by_age if age_filtering else None,
+                changed_files=(len(changed_set) if changed_set is not None else None),
                 **blame_kwargs,
             ),
             file=sys.stderr,
@@ -471,6 +499,7 @@ def main(
                 if age_filtering
                 else None
             ),
+            changed_ref=args.changed,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

@@ -212,10 +212,16 @@ def scan(
     *,
     spec=None,
     override=None,
+    changed: set[str] | None = None,
 ) -> tuple[tuple[IndexedFinding, ...], ScanStats]:
     """Run the full local scan and return indexed findings plus stats."""
     result: DiscoveryResult = discover_files(
-        target, project_root, config, spec=spec, override=override
+        target,
+        project_root,
+        config,
+        spec=spec,
+        override=override,
+        changed=changed,
     )
     findings, retried = scan_files(result.files, project_root, config)
     result.stats.serial_retry_chunks = retried

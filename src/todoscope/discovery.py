@@ -245,8 +245,14 @@ def discover_files(
     *,
     spec: pathspec.PathSpec | None = None,
     override: Override | None = None,
+    changed: set[str] | None = None,
 ) -> DiscoveryResult:
-    """Walk ``target`` and return allowed source files plus stats."""
+    """Walk ``target`` and return allowed source files plus stats.
+
+    ``changed`` restricts the result to repository-root-relative paths in the
+    given set (e.g. files differing from a git ref); the scanned count then
+    reflects the restricted set.
+    """
     files: list[Path] = []
     stats = ScanStats()
     if target_has_symlink_component(target, project_root):
@@ -320,10 +326,13 @@ def discover_files(
             for sub in sorted(subdirs, key=lambda t: (t[0].name.casefold(), t[0].name)):
                 stack.append(sub)
 
+    if changed is not None:
+        files = [f for f in files if relative_posix(f, project_root) in changed]
     files.sort(
         key=lambda p: (
             relative_posix(p, project_root).casefold(),
             relative_posix(p, project_root),
         )
     )
+    stats.scanned = len(files)
     return DiscoveryResult(files=tuple(files), stats=stats)
