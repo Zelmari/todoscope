@@ -73,6 +73,9 @@ from todoscope.status import StatusContext
 PROG = "todoscope"
 DESCRIPTION = "Find maintenance comments in source code."
 
+FINDINGS_GATE_EXIT_CODE = 4
+"""Exit code when the opt-in --fail/--fail-count gate is tripped."""
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser without executing product logic."""
@@ -146,6 +149,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--check-secrets",
         action="store_true",
         help="list findings whose comment text looks like a credential",
+    )
+    parser.add_argument(
+        "--fail",
+        action="store_true",
+        help="exit with code 4 when any findings remain",
+    )
+    parser.add_argument(
+        "--fail-count",
+        type=int,
+        metavar="N",
+        help="exit with code 4 when more than N findings remain",
     )
     return parser
 
@@ -233,6 +247,12 @@ def main(
     """Parse arguments and return a numeric exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.fail and args.fail_count is not None:
+        parser.error("--fail and --fail-count cannot be used together.")
+    if args.fail_count is not None and args.fail_count < 0:
+        print("Error: --fail-count must be a non-negative integer.", file=sys.stderr)
+        return 2
 
     for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
         if value is not None and value < 0:
@@ -395,6 +415,13 @@ def main(
     if args.check_secrets and not args.quiet:
         secrets_found = secret_entries(findings)
 
+    gate_failed = False
+    if args.fail:
+        gate_failed = len(findings) > 0
+    elif args.fail_count is not None:
+        gate_failed = len(findings) > args.fail_count
+    gate_exit = FINDINGS_GATE_EXIT_CODE if gate_failed else 0
+
     eligibility = ai_eligibility(
         config,
         keys,
@@ -484,6 +511,9 @@ def main(
                 secrets_detected=(
                     len(secrets_found) if secrets_found is not None else None
                 ),
+                gate_enabled=args.fail or args.fail_count is not None,
+                gate_threshold=args.fail_count,
+                gate_failed=gate_failed,
                 **blame_kwargs,
             ),
             file=sys.stderr,
@@ -538,9 +568,19 @@ def main(
             changed_ref=args.changed,
             ai_from_cache=ai_from_cache,
             secret_entries=secrets_found,
+            gate=(
+                {
+                    "enabled": True,
+                    "threshold": args.fail_count,
+                    "count": len(findings),
+                    "failed": gate_failed,
+                }
+                if args.fail or args.fail_count is not None
+                else None
+            ),
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
-        return 0
+        return gate_exit
 
     if args.format == "sarif":
         data = sarif_report(
@@ -553,14 +593,14 @@ def main(
             secret_entries=secrets_found,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
-        return 0
+        return gate_exit
 
     if args.format == "github-actions":
         print(gha_report(findings, ai_result))
-        return 0
+        return gate_exit
 
     print(report)
-    return 0
+    return gate_exit
 
 
 def entrypoint() -> None:

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0 (2026-08-24)
+
+### Added
+
+- `--fail` and `--fail-count N`: opt-in CI gates that exit with code 4 when
+  the final filtered report contains any (or more than N) findings. The
+  default behavior stays non-failing; JSON reports gain a `gate` object
+  when a gate flag is given. New `examples/ci/scan-enforce.yml`.
+
+
 ## 0.18.0 (2026-08-24)
 
 ### Added

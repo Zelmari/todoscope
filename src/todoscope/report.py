@@ -234,6 +234,7 @@ def json_report(
     changed_ref: str | None = None,
     ai_from_cache: bool = False,
     secret_entries: SecretEntries | None = None,
+    gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -306,6 +307,7 @@ def json_report(
         }
         | ({"age_filter": age_filter} if age_filter is not None else {})
         | ({"changed_ref": changed_ref} if changed_ref is not None else {})
+        | ({"gate": gate} if gate is not None else {})
         | {
             "secrets": (
                 _secret_json(secret_entries) if secret_entries is not None else None
@@ -345,6 +347,9 @@ def verbose_report(
     changed_files: int | None = None,
     ai_from_cache: bool | None = None,
     secrets_detected: int | None = None,
+    gate_enabled: bool = False,
+    gate_threshold: int | None = None,
+    gate_failed: bool = False,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -386,6 +391,12 @@ def verbose_report(
         lines.append(f"AI results from cache: {'yes' if ai_from_cache else 'no'}")
     if secrets_detected is not None:
         lines.append(f"Possible credentials in comments: {secrets_detected}")
+    if gate_enabled:
+        threshold = gate_threshold if gate_threshold is not None else 0
+        lines.append(
+            f"Findings gate: enabled (threshold {threshold}), "
+            f"failed: {'yes' if gate_failed else 'no'}"
+        )
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"

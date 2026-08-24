@@ -201,6 +201,8 @@ comments**, because comment text may be sent to the AI.
 - `1` — unexpected failure
 - `2` — bad path/usage, or an ignored target refused in non-interactive mode
 - `3` — configuration error
+- `4` — the opt-in `--fail`/`--fail-count` gate was tripped (only when one of
+  those flags is given; finding TODOs is never an error by default)
 
 ## Use in CI
 
@@ -217,6 +219,11 @@ fail a pipeline just because comments exist. Common patterns:
   `::warning`/`::error`/`::notice` workflow commands, so every finding
   appears directly in the pull request — no extra tooling (see
   `examples/ci/scan-annotations.yml`).
+- Enforce a threshold: `todoscope . --quiet --fail-count 10` exits with
+  code 4 when more than 10 findings remain (or `--fail` for any findings),
+  so a pipeline can fail on policy while the default stays non-failing
+  (see `examples/ci/scan-enforce.yml`). The gate counts the final filtered
+  report, so it composes with `--min-age`, `--max-age`, and `--changed`.
 - AI in CI: set `TODOSCOPE_API_KEY` as a repository secret and a `model` in
   `.todoscope.json`; non-interactive runs skip the secondary key safely.
 
