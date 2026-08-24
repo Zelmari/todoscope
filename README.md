@@ -56,6 +56,7 @@ todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
 todoscope src/ --format sarif # SARIF 2.1.0 report for code-scanning tools
+todoscope src/ --format github-actions  # inline PR annotations in GitHub Actions
 ```
 
 That's it. Findings are sorted by folder depth, then path, then line, and
@@ -212,6 +213,10 @@ fail a pipeline just because comments exist. Common patterns:
 - Code-scanning alerts: `todoscope . --format sarif > todoscope.sarif` and
   upload the file with `github/codeql-action/upload-sarif` (or another
   SARIF consumer) to surface findings as alerts in the Security tab.
+- Inline PR annotations: `todoscope . --format github-actions` emits
+  `::warning`/`::error`/`::notice` workflow commands, so every finding
+  appears directly in the pull request — no extra tooling (see
+  `examples/ci/scan-annotations.yml`).
 - AI in CI: set `TODOSCOPE_API_KEY` as a repository secret and a `model` in
   `.todoscope.json`; non-interactive runs skip the secondary key safely.
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.0 (2026-08-24)
+
+### Added
+
+- `--format github-actions`: emits one `::warning`/`::error`/`::notice`
+  workflow command per finding (AI priorities map to error/warning/notice),
+  so TodoScope findings appear as inline pull request annotations in GitHub
+  Actions. Property values and messages are escaped per the workflow-command
+  spec; new `examples/ci/scan-annotations.yml`.
+
+
 ## 0.17.0 (2026-08-24)
 
 ### Added

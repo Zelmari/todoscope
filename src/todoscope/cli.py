@@ -41,6 +41,7 @@ from todoscope.discovery import (
     load_gitignore_spec,
     target_has_symlink_component,
 )
+from todoscope.gha import gha_report
 from todoscope.keys import env_file_is_ignored, load_keys
 from todoscope.openai_client import (
     AiOutcomeKind,
@@ -105,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=("text", "json", "sarif"),
+        choices=("text", "json", "sarif", "github-actions"),
         default="text",
         help="output format (default: text)",
     )
@@ -552,6 +553,10 @@ def main(
             secret_entries=secrets_found,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.format == "github-actions":
+        print(gha_report(findings, ai_result))
         return 0
 
     print(report)
