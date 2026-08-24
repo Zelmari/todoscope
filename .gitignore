@@ -24,3 +24,6 @@ build/
 # Benchmarks
 benchmarks/.trees/
 benchmarks/.results/
+
+# Test playground
+playground/
