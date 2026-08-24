@@ -51,15 +51,18 @@ from todoscope.report import (
     AI_SKIPPED_NONINTERACTIVE,
     AI_SKIPPED_REQUEST_FAILED,
     AI_SKIPPED_SECONDARY_FAILED,
+    AI_SKIPPED_SECRETS,
     AI_SKIPPED_UNSAFE_ENV,
     QUIET_AI_CONFLICT,
     json_report,
     payload_too_large_message,
     quiet_report,
+    secrets_skip_line,
     standard_report,
     verbose_report,
 )
 from todoscope.scan import scan
+from todoscope.secrets import findings_with_secrets
 from todoscope.status import StatusContext
 
 PROG = "todoscope"
@@ -157,6 +160,8 @@ def _ai_skip_line(reason: AiSkipReason, config: Config) -> str | None:
         return payload_too_large_message(config)
     if reason is AiSkipReason.NO_KEY:
         return AI_SKIPPED_NO_KEY
+    if reason is AiSkipReason.SECRETS_FOUND:
+        return AI_SKIPPED_SECRETS
     return None
 
 
@@ -276,14 +281,20 @@ def main(
     )
     ai_payload_chars: int | None = None
     items = None
+    secrets_found_line: str | None = None
     if eligibility.reason is AiSkipReason.ELIGIBLE:
-        items = build_ai_items(findings)
-        ai_payload_chars = payload_characters(items)
-        if ai_payload_chars > effective_limit(config):
-            eligibility = AiEligibility(
-                reason=AiSkipReason.PAYLOAD_TOO_LARGE,
-                payload_characters=ai_payload_chars,
-            )
+        secret_findings = findings_with_secrets(findings)
+        if secret_findings:
+            eligibility = AiEligibility(reason=AiSkipReason.SECRETS_FOUND)
+            secrets_found_line = secrets_skip_line(secret_findings)
+        else:
+            items = build_ai_items(findings)
+            ai_payload_chars = payload_characters(items)
+            if ai_payload_chars > effective_limit(config):
+                eligibility = AiEligibility(
+                    reason=AiSkipReason.PAYLOAD_TOO_LARGE,
+                    payload_characters=ai_payload_chars,
+                )
 
     ai_result = None
     ai_failure_line: str | None = None
@@ -375,7 +386,11 @@ def main(
     if args.quiet:
         report = quiet_report(findings)
     else:
-        skip_line = ai_failure_line or _ai_skip_line(eligibility.reason, config)
+        skip_line = (
+            ai_failure_line
+            or secrets_found_line
+            or _ai_skip_line(eligibility.reason, config)
+        )
         report = standard_report(
             findings,
             stats.scanned,

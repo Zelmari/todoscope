@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0 (2026-08-24)
+
+### Added
+
+- Secret detection in comments: before any AI request, comment text is
+  screened for likely credentials (API keys, tokens, private-key headers,
+  credential assignments). If any finding looks like a secret, the AI
+  request is refused and the suspicious findings are listed in the text
+  report; JSON reports `"ai": {"status": "skipped", "reason":
+  "secrets-found"}`. Local scans are unaffected.
+
+
 ## 0.10.2 (2026-08-20)
 
 ### Fixed

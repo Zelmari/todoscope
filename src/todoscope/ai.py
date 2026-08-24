@@ -55,6 +55,7 @@ class AiSkipReason(StrEnum):
     NO_KEY = "no-key"
     NO_MODEL = "no-model"
     UNSAFE_ENV = "unsafe-env"
+    SECRETS_FOUND = "secrets-found"
     PAYLOAD_TOO_LARGE = "payload-too-large"
     ELIGIBLE = "eligible"
 

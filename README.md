@@ -126,6 +126,12 @@ retry with it — the secondary key is never used silently.
 > Priorities are estimated from comment text only. No source code was
 > provided to the AI.
 
+Before any request, comment text is screened for likely credentials (API
+keys, tokens, private-key headers, credential assignments). If any finding
+looks like a secret, the AI request is refused and the suspicious findings
+are listed locally — the local report is unaffected. Detection is
+conservative: it flags unambiguous secret shapes, never prose.
+
 ### Using DeepSeek (or another OpenAI-compatible provider)
 
 The OpenAI SDK reads `OPENAI_BASE_URL` from your environment. For DeepSeek:
@@ -144,7 +150,9 @@ alias todoscope="OPENAI_BASE_URL=https://api.deepseek.com /home/$USER/.local/bin
 ## Privacy
 
 The only data from your repository that reaches the AI is each finding's ID,
-marker, and extracted comment text. Everything else stays local. Comments are
+marker, and extracted comment text. Everything else stays local. Before any
+request, comment text is screened for likely credentials and the request is
+refused if any are found. Comments are
 treated as untrusted data — instructions written inside a comment can never
 change TodoScope's behaviour. **Never put credentials or secrets in code
 comments**, because comment text may be sent to the AI.

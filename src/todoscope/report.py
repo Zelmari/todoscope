@@ -25,6 +25,10 @@ AI_SKIPPED_NONINTERACTIVE = (
     "was skipped in non-interactive mode."
 )
 AI_SKIPPED_SECONDARY_FAILED = "AI analysis skipped: the secondary AI request failed."
+AI_SKIPPED_SECRETS = (
+    "AI analysis skipped: possible credentials were found in comments. "
+    "Comment text is not sent to the AI when it may contain secrets."
+)
 
 QUIET_AI_CONFLICT = "--quiet and --ai cannot be used together."
 
@@ -73,6 +77,16 @@ def scan_header(files_scanned: int, target: str, count: int, config: Config) -> 
 
 def no_findings_line(config: Config) -> str:
     return f"No {marker_label(config)} were found."
+
+
+def secrets_skip_line(secret_findings: tuple[IndexedFinding, ...]) -> str:
+    """Skip message plus the canonical line of every suspicious finding."""
+    lines = [AI_SKIPPED_SECRETS, ""]
+    for indexed in secret_findings:
+        finding = indexed.finding
+        suffix = f": {finding.text}" if finding.text else ""
+        lines.append(f"   {finding.path}:{finding.line}: {finding.marker}{suffix}")
+    return "\n".join(lines)
 
 
 def _finding_line(indexed: IndexedFinding) -> str:
