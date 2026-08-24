@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,14 +28,31 @@ from todoscope.openai_client import (
 
 CACHE_SCHEMA_VERSION = 1
 CACHE_FILENAME = "ai-cache.json"
+CACHE_MAX_ENTRIES = 20_000
+"""Hard cap on cached item entries; the newest entries win."""
+CACHE_MAX_AGE_DAYS = 180
+"""Entries and run overviews older than this are pruned on load."""
 
 
 def cache_path(*, environ: dict[str, str] | None = None) -> Path:
-    """User-level cache file: XDG_CACHE_HOME/todoscope, else ~/.cache."""
+    """User-level cache file: XDG, else LOCALAPPDATA on Windows, else ~/.cache."""
     if environ is None:
         environ = dict(os.environ)
-    base = environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(base) / "todoscope" / CACHE_FILENAME
+    return _cache_base_dir(environ) / "todoscope" / CACHE_FILENAME
+
+
+def _cache_base_dir(environ: dict[str, str], *, on_windows: bool | None = None) -> Path:
+    """Cache base directory; ``on_windows`` overrides os.name for tests."""
+    if on_windows is None:
+        on_windows = os.name == "nt"
+    xdg = environ.get("XDG_CACHE_HOME")
+    if xdg:
+        return Path(xdg)
+    if on_windows:
+        local = environ.get("LOCALAPPDATA")
+        if local:
+            return Path(local)
+    return Path.home() / ".cache"
 
 
 def item_key(marker: str, text: str, model: str) -> str:
@@ -64,7 +82,43 @@ def load_cache(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         return {}
+    prune_cache(data)
     return data
+
+
+def prune_cache(data: dict[str, Any], *, now: float | None = None) -> None:
+    """Drop entries and overviews past the age limit, and cap entry count."""
+    if now is None:
+        now = time.time()
+    cutoff = now - CACHE_MAX_AGE_DAYS * 86400
+
+    items = data.get("items")
+    if isinstance(items, dict):
+        stale = [
+            key
+            for key, entry in items.items()
+            if isinstance(entry, dict) and entry.get("ts", now) < cutoff
+        ]
+        for key in stale:
+            del items[key]
+        if len(items) > CACHE_MAX_ENTRIES:
+            ordered = sorted(
+                items.items(),
+                key=lambda kv: kv[1].get("ts", 0) if isinstance(kv[1], dict) else 0,
+                reverse=True,
+            )
+            for key, _ in ordered[CACHE_MAX_ENTRIES:]:
+                del items[key]
+
+    runs = data.get("runs")
+    if isinstance(runs, dict):
+        stale = [
+            key
+            for key, entry in runs.items()
+            if isinstance(entry, dict) and entry.get("ts", now) < cutoff
+        ]
+        for key in stale:
+            del runs[key]
 
 
 def save_cache(path: Path, data: dict[str, Any]) -> bool:
@@ -149,12 +203,14 @@ def run_cached_analysis(
         status=status,
     )
     if outcome.kind is AiOutcomeKind.SUCCESS and outcome.result is not None:
+        stamp = time.time()
         for item in outcome.result.items:
             store[item_keys[item.id]] = {
                 "interpretation": item.interpretation,
                 "priority": item.priority,
+                "ts": stamp,
             }
-        runs[overview_key] = {"overview": outcome.result.overview}
+        runs[overview_key] = {"overview": outcome.result.overview, "ts": stamp}
         if missing:
             fresh = {item.id: item for item in outcome.result.items}
             merged = AnalysisResult(

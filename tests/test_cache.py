@@ -281,3 +281,71 @@ def test_cli_no_cache_bypasses_cache(tmp_path, monkeypatch, capsys) -> None:
     assert result == 0
     assert len(calls) == 1
     assert "served from the local cache" not in captured.out
+
+
+def test_prune_cache_drops_stale_entries() -> None:
+    from todoscope.cache import CACHE_MAX_AGE_DAYS, prune_cache
+
+    now = 1_800_000_000.0
+    fresh = now - 10
+    stale = now - (CACHE_MAX_AGE_DAYS + 1) * 86400
+    data = {
+        "items": {
+            "fresh": {"interpretation": "x", "priority": "Low", "ts": fresh},
+            "stale": {"interpretation": "y", "priority": "Low", "ts": stale},
+        },
+        "runs": {
+            "r1": {"overview": "o", "ts": fresh},
+            "r2": {"overview": "o", "ts": stale},
+        },
+    }
+    prune_cache(data, now=now)
+    assert set(data["items"]) == {"fresh"}
+    assert set(data["runs"]) == {"r1"}
+
+
+def test_prune_cache_keeps_entries_without_timestamp() -> None:
+    from todoscope.cache import prune_cache
+
+    now = 1_800_000_000.0
+    data = {"items": {"legacy": {"interpretation": "x", "priority": "Low"}}}
+    prune_cache(data, now=now)
+    assert set(data["items"]) == {"legacy"}
+
+
+def test_prune_cache_caps_entry_count() -> None:
+    from todoscope.cache import CACHE_MAX_ENTRIES, prune_cache
+
+    now = 1_800_000_000.0
+    data = {
+        "items": {
+            f"key{i:05d}": {"interpretation": "x", "priority": "Low", "ts": now - i}
+            for i in range(CACHE_MAX_ENTRIES + 50)
+        }
+    }
+    prune_cache(data, now=now)
+    assert len(data["items"]) == CACHE_MAX_ENTRIES
+    assert "key00000" in data["items"]
+    assert "key20000" not in data["items"]
+
+
+def test_cache_path_uses_localappdata_on_windows(monkeypatch) -> None:
+    from todoscope.cache import _cache_base_dir
+
+    base = _cache_base_dir(
+        {"LOCALAPPDATA": "/home/runner/AppData/Local"}, on_windows=True
+    )
+    assert base.as_posix() == "/home/runner/AppData/Local"
+
+
+def test_cache_path_xdg_wins_on_windows(monkeypatch) -> None:
+    from todoscope.cache import _cache_base_dir
+
+    base = _cache_base_dir(
+        {
+            "XDG_CACHE_HOME": "/tmp/cache-root",
+            "LOCALAPPDATA": "/home/runner/AppData/Local",
+        },
+        on_windows=True,
+    )
+    assert base.as_posix() == "/tmp/cache-root"

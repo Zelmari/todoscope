@@ -253,3 +253,73 @@ def test_files_are_sorted_deterministically(tmp_path) -> None:
     write(tmp_path / "Z" / "x.py")
     result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
     assert names(result, tmp_path) == ["a.py", "B.py", "Z/x.py"]
+
+
+def test_vcs_metadata_dirs_are_pruned(tmp_path) -> None:
+    write(tmp_path / ".git" / "objects" / "ab" / "x.py")
+    write(tmp_path / ".git" / "index")
+    write(tmp_path / ".hg" / "store" / "y.py")
+    write(tmp_path / ".svn" / "entries")
+    write(tmp_path / "app.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["app.py"]
+    assert result.stats.unsupported == 0
+    assert result.stats.scanned == 1
+
+
+def test_git_file_worktree_pointer_is_pruned(tmp_path) -> None:
+    write(tmp_path / ".git", "gitdir: /elsewhere/.git\n")
+    write(tmp_path / "app.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["app.py"]
+    assert result.stats.unsupported == 0
+
+
+def test_exclude_glob_matches_at_depth(tmp_path) -> None:
+    write(tmp_path / ".todoscope.json", '{"exclude": ["*.generated.py"]}')
+    write(tmp_path / "app.py")
+    write(tmp_path / "deep" / "nested" / "thing.generated.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["app.py"]
+    assert result.stats.ignored_by_config == 1
+
+
+def test_exclude_glob_directory_tree(tmp_path) -> None:
+    write(tmp_path / ".todoscope.json", '{"exclude": ["legacy/**"]}')
+    write(tmp_path / "legacy" / "a.py")
+    write(tmp_path / "legacy" / "sub" / "b.py")
+    write(tmp_path / "app.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["app.py"]
+    assert result.stats.ignored_by_config == 2
+
+
+def test_exclude_glob_question_mark(tmp_path) -> None:
+    write(tmp_path / ".todoscope.json", '{"exclude": ["gen?.py"]}')
+    write(tmp_path / "gen1.py")
+    write(tmp_path / "genx.py")
+    write(tmp_path / "gen.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["gen.py"]
+    assert result.stats.ignored_by_config == 2
+
+
+def test_exclude_mixed_globs_and_prefixes(tmp_path) -> None:
+    write(tmp_path / ".todoscope.json", '{"exclude": ["vendored/", "*.tmp.py"]}')
+    write(tmp_path / "vendored" / "a.py")
+    write(tmp_path / "deep" / "x.tmp.py")
+    write(tmp_path / "app.py")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["app.py"]
+    assert result.stats.ignored_by_config == 2
+
+
+def test_exclude_glob_blocks_explicit_target(tmp_path, capsys) -> None:
+    from todoscope.cli import main
+
+    write(tmp_path / ".todoscope.json", '{"exclude": ["*.generated.py"]}')
+    target = write(tmp_path / "out.generated.py")
+    result = main([str(target)])
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "excluded by .todoscope.json" in captured.err

@@ -117,7 +117,7 @@ Everything optional lives in a `.todoscope.json` in your project root:
 |---|---|
 | `markers` | Replaces the default marker list (`["TODO"]`). Matching is case-sensitive and prefix-based; the longest matching marker wins. |
 | `extensions` | Replaces the default scanned extensions. |
-| `exclude` | Skips exact project-root-relative paths or directory prefixes. |
+| `exclude` | Skips exact project-root-relative paths or directory prefixes. Entries containing glob characters (`*`, `?`, `[`) match like `.gitignore` patterns instead. |
 | `model` | Required for AI analysis. There is **no default model**. |
 | `max_ai_characters` | Lower AI payload limit (hard ceiling: 100,000). |
 
@@ -150,7 +150,8 @@ Results are cached locally (XDG cache directory, `~/.cache/todoscope` on
 Linux): repeat runs with identical comment text cost no API budget. The
 cache stores only comment hashes plus interpretations and priorities —
 never paths, line numbers, or source — and is best-effort: a broken or
-unwritable cache never fails a scan. Pass `--no-cache` to bypass it.
+unwritable cache never fails a scan. Entries older than 180 days are pruned
+and the cache is capped at 20,000 entries. Pass `--no-cache` to bypass it.
 
 > Priorities are estimated from comment text only. No source code was
 > provided to the AI.

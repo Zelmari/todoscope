@@ -1,16 +1,18 @@
-"""File discovery and exclusion engine (MS-4/14).
+"""File discovery and exclusion engine (MS-4/14/27).
 
 Produces the exact ordered set of permitted source files for a target,
 applying every ``.gitignore`` from the project root down to each directory
 (git semantics: deeper files override earlier ones, patterns are relative to
-their own directory), custom exclusions, extension filtering, symlink
-skipping, and unreadable-file handling.
+their own directory), custom exclusions (exact paths, directory prefixes, or
+glob patterns), symlink skipping, and unreadable-file handling. Version
+control metadata directories are never descended into.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
@@ -20,6 +22,9 @@ from todoscope.config import Config, ConfigError
 
 GITIGNORE_SOURCE = "gitignore"
 CONFIG_SOURCE = "configuration"
+
+_VCS_METADATA_NAMES = frozenset({".git", ".hg", ".svn"})
+_GLOB_METACHARS = frozenset("*?[")
 
 
 class IgnoredTargetError(Exception):
@@ -211,8 +216,17 @@ def build_override(
 
 
 def _config_exclude_matches(rel: str, entry: str) -> bool:
-    entry = entry.rstrip("/")
-    return rel == entry or rel.startswith(entry + "/")
+    """Match a config exclude entry: exact/prefix, or glob when it has one."""
+    if not any(ch in entry for ch in _GLOB_METACHARS):
+        entry = entry.rstrip("/")
+        return rel == entry or rel.startswith(entry + "/")
+    return _exclude_glob_spec(entry).match_file(rel)
+
+
+@lru_cache(maxsize=256)
+def _exclude_glob_spec(entry: str) -> pathspec.PathSpec:
+    """Compiled gitignore-style spec for a glob exclude entry."""
+    return pathspec.GitIgnoreSpec.from_lines([entry])
 
 
 def blocking_config_entries(rel: str, entries: tuple[str, ...]) -> tuple[str, ...]:
@@ -303,6 +317,8 @@ def discover_files(
                     stats.symlinks += 1
                     continue
                 path = Path(entry.path)
+                if path.name in _VCS_METADATA_NAMES:
+                    continue
                 if entry.is_dir(follow_symlinks=False):
                     rel = relative_posix(path, project_root)
                     source = _blocking_source(rel, chain, path, True, config, override)

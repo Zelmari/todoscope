@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0 (2026-08-24)
+
+### Changed
+
+- Version control metadata (`.git`, `.hg`, `.svn`) is never descended into,
+  so verbose reports no longer count `.git` internals as unsupported files.
+- `exclude` entries containing glob characters (`*`, `?`, `[`) now match
+  like `.gitignore` patterns; exact-path and directory-prefix entries behave
+  exactly as before.
+- The local AI cache is capped at 20,000 entries and prunes entries and run
+  overviews older than 180 days on load; older cache files remain readable.
+- On Windows the AI cache uses `%LOCALAPPDATA%` (the XDG cache variable
+  still wins when set).
+
+
 ## 0.15.0 (2026-08-24)
 
 ### Added
