@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.20.0 (2026-08-24)
+
+### Changed
+
+- AI payloads above the configured limit are now chunked into multiple
+  requests (each within `max_ai_characters`, results merged in finding
+  order, overview from the first chunk) instead of skipping analysis. The
+  cache is per-chunk, so unchanged chunks keep hitting it. A single comment
+  larger than the limit still skips AI analysis.
+
+
 ## 0.19.0 (2026-08-24)
 
 ### Added

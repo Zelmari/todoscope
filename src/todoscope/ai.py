@@ -83,6 +83,38 @@ def payload_characters(items: list[dict[str, Any]]) -> int:
     return len(json.dumps(items, ensure_ascii=False))
 
 
+def chunk_items(
+    items: list[dict[str, Any]], max_chars: int
+) -> list[list[dict[str, Any]]]:
+    """Split items into chunks whose serialised payload fits ``max_chars``.
+
+    A single item larger than ``max_chars`` keeps its own chunk — a comment
+    cannot be split; callers decide whether that is acceptable.
+    """
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_size = 0
+    for item in items:
+        size = len(json.dumps([item], ensure_ascii=False))
+        if current and current_size + size > max_chars:
+            chunks.append(current)
+            current = []
+            current_size = 0
+        current.append(item)
+        current_size += size
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def oversized_item(items: list[dict[str, Any]], max_chars: int) -> int | None:
+    """ID of the first item whose payload alone exceeds ``max_chars``."""
+    for item in items:
+        if len(json.dumps([item], ensure_ascii=False)) > max_chars:
+            return item["id"]
+    return None
+
+
 def effective_limit(config: Config) -> int:
     """The applicable payload ceiling: configured lower limit or the hard one."""
     if config.max_ai_characters is not None:

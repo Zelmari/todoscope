@@ -11,6 +11,7 @@ from todoscope.cache import (
     item_key,
     load_cache,
     run_cached_analysis,
+    run_chunked_analysis,
     run_key,
     save_cache,
 )
@@ -349,3 +350,206 @@ def test_cache_path_xdg_wins_on_windows(monkeypatch) -> None:
         on_windows=True,
     )
     assert base.as_posix() == "/tmp/cache-root"
+
+
+def test_chunk_items_splits_by_serialized_size() -> None:
+    from todoscope.ai import chunk_items
+
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 50},
+        {"id": 2, "marker": "TODO", "text": "b" * 50},
+        {"id": 3, "marker": "TODO", "text": "c" * 50},
+    ]
+    chunks = chunk_items(items, 120)
+    assert [item["id"] for chunk in chunks for item in chunk] == [1, 2, 3]
+    assert all(len(chunk) <= 1 for chunk in chunks)
+
+
+def test_chunk_items_single_chunk_when_it_fits() -> None:
+    from todoscope.ai import chunk_items
+
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 10},
+        {"id": 2, "marker": "TODO", "text": "b" * 10},
+    ]
+    assert chunk_items(items, 10_000) == [items]
+
+
+def test_chunk_items_oversized_item_keeps_own_chunk() -> None:
+    from todoscope.ai import chunk_items
+
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 500},
+        {"id": 2, "marker": "TODO", "text": "b"},
+    ]
+    chunks = chunk_items(items, 100)
+    assert [item["id"] for chunk in chunks for item in chunk] == [1, 2]
+    assert chunks[0] == [items[0]]
+
+
+def test_oversized_item_reports_first_violator() -> None:
+    from todoscope.ai import oversized_item
+
+    items = [
+        {"id": 1, "marker": "TODO", "text": "small"},
+        {"id": 2, "marker": "TODO", "text": "x" * 500},
+    ]
+    assert oversized_item(items, 100) == 2
+    assert oversized_item(items, 10_000) is None
+
+
+def test_chunked_analysis_merges_by_id_and_uses_first_overview(monkeypatch) -> None:
+    def recording(items, model, keys, **kwargs):
+        ids = [item["id"] for item in items]
+        return (
+            AiOutcome(
+                AiOutcomeKind.SUCCESS,
+                AnalysisResult(
+                    items=tuple(
+                        AnalysisItem(id=i, interpretation=f"About {i}.", priority="Low")
+                        for i in ids
+                    ),
+                    overview=f"Overview of {ids}.",
+                ),
+            ),
+            False,
+        )
+
+    monkeypatch.setattr("todoscope.cache.run_cached_analysis", recording)
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+        {"id": 3, "marker": "TODO", "text": "c" * 80},
+    ]
+    outcome, used = run_chunked_analysis(
+        items, "m", keys(), cache=None, max_chars=150, interactive=False
+    )
+    assert used is False
+    assert outcome.kind is AiOutcomeKind.SUCCESS
+    assert [item.id for item in outcome.result.items] == [1, 2, 3]
+    assert outcome.result.overview == "Overview of [1]."
+
+
+def test_chunked_analysis_fails_whole_outcome_on_chunk_failure(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def failing(items, model, keys, **kwargs):
+        calls["count"] += 1
+        if calls["count"] > 1:
+            return AiOutcome(AiOutcomeKind.PRIMARY_FAILED), False
+        return (
+            AiOutcome(
+                AiOutcomeKind.SUCCESS,
+                AnalysisResult(
+                    items=(AnalysisItem(id=1, interpretation="x", priority="Low"),),
+                    overview="o",
+                ),
+            ),
+            False,
+        )
+
+    monkeypatch.setattr("todoscope.cache.run_cached_analysis", failing)
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+    ]
+    outcome, _ = run_chunked_analysis(
+        items, "m", keys(), cache=None, max_chars=100, interactive=False
+    )
+    assert outcome.kind is AiOutcomeKind.PRIMARY_FAILED
+
+
+def test_chunked_analysis_full_cache_hit_makes_no_requests(monkeypatch) -> None:
+    cache: dict = {}
+
+    def fake_network(items, model, keys, **kwargs):
+        return AiOutcome(
+            AiOutcomeKind.SUCCESS,
+            AnalysisResult(
+                items=tuple(
+                    AnalysisItem(id=item["id"], interpretation="x", priority="Low")
+                    for item in items
+                ),
+                overview="o",
+            ),
+        )
+
+    monkeypatch.setattr("todoscope.cache.run_ai_analysis", fake_network)
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+    ]
+    outcome, used = run_chunked_analysis(
+        items, "m", keys(), cache=cache, max_chars=100, interactive=False
+    )
+    assert used is False
+    assert outcome.kind is AiOutcomeKind.SUCCESS
+
+    monkeypatch.setattr(
+        "todoscope.cache.run_ai_analysis",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("full multi-chunk cache hit must not request")
+        ),
+    )
+    outcome, used = run_chunked_analysis(
+        items, "m", keys(), cache=cache, max_chars=100, interactive=False
+    )
+    assert used is True
+    assert outcome.kind is AiOutcomeKind.SUCCESS
+    assert [item.id for item in outcome.result.items] == [1, 2]
+
+
+def test_cli_chunks_large_payloads(tmp_path, monkeypatch, capsys) -> None:
+    from todoscope.ai import AnalysisItem, AnalysisResult
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "# TODO: " + "x" * 300 + "\n"
+        "# TODO: " + "y" * 300 + "\n"
+        "# TODO: " + "z" * 300 + "\n"
+    )
+    (tmp_path / ".todoscope.json").write_text(
+        '{"model": "m", "max_ai_characters": 500}'
+    )
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-x")
+    calls: list = []
+
+    def fake_analyze(items, model, api_key, **kwargs):
+        calls.append([item["id"] for item in items])
+        return AnalysisResult(
+            items=tuple(
+                AnalysisItem(id=item["id"], interpretation="x", priority="Low")
+                for item in items
+            ),
+            overview=f"Overview {[item['id'] for item in items]}.",
+        )
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
+    result = main([str(tmp_path / "src"), "--ai"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert len(calls) > 1
+    assert sorted(i for chunk in calls for i in chunk) == [1, 2, 3]
+    assert "Overall AI summary" in captured.out
+
+
+def test_cli_single_oversized_comment_still_refuses(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "# TODO: " + "x" * 2000 + "\n# TODO: short\n"
+    )
+    (tmp_path / ".todoscope.json").write_text(
+        '{"model": "m", "max_ai_characters": 500}'
+    )
+    monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-x")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("no AI request may be made")
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", fail_if_called)
+    result = main([str(tmp_path / "src"), "--ai"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "exceed the maximum AI payload size" in captured.out

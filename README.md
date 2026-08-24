@@ -158,6 +158,13 @@ and the cache is capped at 20,000 entries. Pass `--no-cache` to bypass it.
 > Priorities are estimated from comment text only. No source code was
 > provided to the AI.
 
+Payloads above the configured limit are sent in multiple requests, each
+within `max_ai_characters` (comments are grouped greedily; one request per
+chunk, results merged in finding order, and the overview comes from the
+first chunk). A single comment larger than the limit still skips AI
+analysis rather than being truncated. The cache is keyed per comment, so
+unchanged chunks keep hitting it across runs.
+
 Before any request, comment text is screened for likely credentials (API
 keys, tokens, private-key headers, credential assignments). If any finding
 looks like a secret, the AI request is refused and the suspicious findings

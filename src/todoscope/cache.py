@@ -1,10 +1,11 @@
-"""Local cache for AI interpretations (MS-26).
+"""Local cache for AI interpretations (MS-26/31).
 
 Interpretations and priorities are keyed by a hash of (marker, text, model)
 so repeat runs with identical comments cost no API budget. The cache stores
 only interpretation/priority/overview text plus hashes — never paths, line
 numbers, or source — and is best-effort: unreadable or unwritable cache
-files fail open with a warning, never failing the scan.
+files fail open with a warning, never failing the scan. Payloads above the
+per-request limit are chunked, with per-chunk cache entries and overviews.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from todoscope.ai import AnalysisItem, AnalysisResult
+from todoscope.ai import AnalysisItem, AnalysisResult, chunk_items
 from todoscope.keys import KeyInfo
 from todoscope.openai_client import (
     AiOutcome,
@@ -227,3 +228,61 @@ def run_cached_analysis(
             )
             return AiOutcome(AiOutcomeKind.SUCCESS, merged), False
     return outcome, False
+
+
+def run_chunked_analysis(
+    items: list[dict[str, Any]],
+    model: str,
+    keys: KeyInfo,
+    *,
+    cache: dict[str, Any] | None,
+    max_chars: int,
+    interactive: bool,
+    confirm_secondary: ConfirmSecondaryFn | None = None,
+    status: StatusFactory | None = None,
+) -> tuple[AiOutcome, bool]:
+    """Cache-aware AI analysis, chunking payloads above ``max_chars``.
+
+    Each chunk is analysed and cached independently (per-chunk overview
+    keys), so a full multi-chunk cache hit makes no requests at all. Results
+    are merged by id; the overview comes from the first chunk. A failed
+    chunk fails the whole outcome, exactly like a single request.
+    """
+    chunks = chunk_items(items, max_chars)
+    if len(chunks) <= 1:
+        return run_cached_analysis(
+            items,
+            model,
+            keys,
+            cache=cache,
+            interactive=interactive,
+            confirm_secondary=confirm_secondary,
+            status=status,
+        )
+
+    merged: list[AnalysisItem] = []
+    overview: str | None = None
+    used_cache = False
+    for chunk in chunks:
+        outcome, chunk_cached = run_cached_analysis(
+            chunk,
+            model,
+            keys,
+            cache=cache,
+            interactive=interactive,
+            confirm_secondary=confirm_secondary,
+            status=status,
+        )
+        if outcome.kind is not AiOutcomeKind.SUCCESS or outcome.result is None:
+            return outcome, False
+        used_cache = used_cache or chunk_cached
+        if overview is None:
+            overview = outcome.result.overview
+        merged.extend(outcome.result.items)
+    return (
+        AiOutcome(
+            AiOutcomeKind.SUCCESS,
+            AnalysisResult(items=tuple(merged), overview=overview or ""),
+        ),
+        used_cache,
+    )

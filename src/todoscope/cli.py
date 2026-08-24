@@ -19,6 +19,7 @@ from todoscope.ai import (
     ai_eligibility,
     build_ai_items,
     effective_limit,
+    oversized_item,
     payload_characters,
 )
 from todoscope.blame import (
@@ -30,7 +31,7 @@ from todoscope.blame import (
     blame_for_file,
     filter_by_age,
 )
-from todoscope.cache import cache_path, load_cache, run_cached_analysis, save_cache
+from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
@@ -440,7 +441,8 @@ def main(
         else:
             items = build_ai_items(findings)
             ai_payload_chars = payload_characters(items)
-            if ai_payload_chars > effective_limit(config):
+            limit = effective_limit(config)
+            if ai_payload_chars > limit and oversized_item(items, limit) is not None:
                 eligibility = AiEligibility(
                     reason=AiSkipReason.PAYLOAD_TOO_LARGE,
                     payload_characters=ai_payload_chars,
@@ -459,11 +461,12 @@ def main(
             confirm_secondary = _prompt_secondary
         cache_file = None if args.no_cache else cache_path()
         cache_data = None if cache_file is None else load_cache(cache_file)
-        outcome, ai_from_cache = run_cached_analysis(
+        outcome, ai_from_cache = run_chunked_analysis(
             items,
             config.model,
             keys,
             cache=cache_data,
+            max_chars=effective_limit(config),
             interactive=interactive,
             confirm_secondary=confirm_secondary,
             status=status,
