@@ -431,11 +431,8 @@ def test_chunked_analysis_merges_by_id_and_uses_first_overview(monkeypatch) -> N
 
 
 def test_chunked_analysis_fails_whole_outcome_on_chunk_failure(monkeypatch) -> None:
-    calls = {"count": 0}
-
     def failing(items, model, keys, **kwargs):
-        calls["count"] += 1
-        if calls["count"] > 1:
+        if any(item["id"] == 2 for item in items):
             return AiOutcome(AiOutcomeKind.PRIMARY_FAILED), False
         return (
             AiOutcome(
@@ -553,3 +550,116 @@ def test_cli_single_oversized_comment_still_refuses(
     captured = capsys.readouterr()
     assert result == 0
     assert "exceed the maximum AI payload size" in captured.out
+
+
+def test_parallel_mode_uses_bounded_threads(monkeypatch) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from todoscope.cache import AI_CONCURRENT_CHUNKS
+
+    recorded: list = []
+
+    def recording_executor(max_workers, *args, **kwargs):
+        recorded.append(max_workers)
+        return ThreadPoolExecutor(max_workers, *args, **kwargs)
+
+    monkeypatch.setattr("todoscope.cache.ThreadPoolExecutor", recording_executor)
+
+    def fake_network(items, model, keys, **kwargs):
+        return (
+            AiOutcome(
+                AiOutcomeKind.SUCCESS,
+                AnalysisResult(
+                    items=tuple(
+                        AnalysisItem(id=i, interpretation="x", priority="Low")
+                        for i in [item["id"] for item in items]
+                    ),
+                    overview="o",
+                ),
+            ),
+            False,
+        )
+
+    monkeypatch.setattr("todoscope.cache.run_cached_analysis", fake_network)
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+        {"id": 3, "marker": "TODO", "text": "c" * 80},
+    ]
+    outcome, _ = run_chunked_analysis(
+        items, "m", keys(), cache=None, max_chars=100, interactive=False
+    )
+    assert recorded == [AI_CONCURRENT_CHUNKS]
+    assert outcome.kind is AiOutcomeKind.SUCCESS
+    assert [item.id for item in outcome.result.items] == [1, 2, 3]
+
+
+def test_parallel_mode_never_prompts_for_secondary(monkeypatch) -> None:
+    def failing(items, model, keys, **kwargs):
+        return AiOutcome(AiOutcomeKind.PRIMARY_FAILED), False
+
+    monkeypatch.setattr("todoscope.cache.run_cached_analysis", failing)
+
+    def forbidden_prompt():
+        raise AssertionError("secondary prompt must not run in parallel mode")
+
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+    ]
+    outcome, _ = run_chunked_analysis(
+        items,
+        "m",
+        KeyInfo(
+            primary="sk-x",
+            primary_source="shell",
+            secondary="sk-secondary",
+            secondary_source="shell",
+        ),
+        cache=None,
+        max_chars=100,
+        interactive=True,
+        confirm_secondary=forbidden_prompt,
+    )
+    assert outcome.kind is AiOutcomeKind.PRIMARY_FAILED
+
+
+def test_sequential_single_chunk_keeps_secondary_flow(monkeypatch) -> None:
+    from todoscope.openai_client import AiRequestError
+
+    prompt_calls = {"count": 0}
+    calls = {"count": 0}
+
+    def flaky_analyze(items, model, api_key, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise AiRequestError("primary failed")
+        return AnalysisResult(
+            items=(AnalysisItem(id=1, interpretation="x", priority="Low"),),
+            overview="o",
+        )
+
+    monkeypatch.setattr("todoscope.openai_client.analyze", flaky_analyze)
+
+    def recording_prompt():
+        prompt_calls["count"] += 1
+        return True
+
+    items = [{"id": 1, "marker": "TODO", "text": "small"}]
+    outcome, _ = run_chunked_analysis(
+        items,
+        "m",
+        KeyInfo(
+            primary="sk-x",
+            primary_source="shell",
+            secondary="sk-secondary",
+            secondary_source="shell",
+        ),
+        cache=None,
+        max_chars=10_000,
+        interactive=True,
+        confirm_secondary=recording_prompt,
+    )
+    assert outcome.kind is AiOutcomeKind.SUCCESS
+    assert prompt_calls["count"] == 1
+    assert calls["count"] == 2

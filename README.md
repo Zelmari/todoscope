@@ -201,7 +201,9 @@ and the cache is capped at 20,000 entries. Pass `--no-cache` to bypass it.
 Payloads above the configured limit are sent in multiple requests, each
 within `max_ai_characters` (comments are grouped greedily; one request per
 chunk, results merged in finding order, and the overview comes from the
-first chunk). A single comment larger than the limit still skips AI
+first chunk). Multi-chunk runs analyse up to 3 chunks concurrently and use
+the primary API key only (the interactive secondary-key retry applies to
+single-request runs). A single comment larger than the limit still skips AI
 analysis rather than being truncated. The cache is keyed per comment, so
 unchanged chunks keep hitting it across runs.
 

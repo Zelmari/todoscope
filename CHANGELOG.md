@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.0 (2026-08-24)
+
+### Changed
+
+- Multi-chunk AI runs now analyse up to 3 chunks concurrently (one status
+  context, shared cache) instead of strictly sequentially. For safety the
+  interactive secondary-key retry applies to single-request runs only;
+  multi-chunk runs use the primary key.
+
+
 ## 0.23.0 (2026-08-24)
 
 ### Added

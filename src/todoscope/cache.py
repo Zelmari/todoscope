@@ -13,7 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +36,9 @@ CACHE_MAX_ENTRIES = 20_000
 """Hard cap on cached item entries; the newest entries win."""
 CACHE_MAX_AGE_DAYS = 180
 """Entries and run overviews older than this are pruned on load."""
+
+AI_CONCURRENT_CHUNKS = 3
+"""Chunks analysed in parallel; multi-chunk runs use the primary key only."""
 
 
 def cache_path(*, environ: dict[str, str] | None = None) -> Path:
@@ -259,7 +265,37 @@ def run_chunked_analysis(
             confirm_secondary=confirm_secondary,
             status=status,
         )
+    if AI_CONCURRENT_CHUNKS > 1:
+        return _run_chunks_parallel(
+            chunks,
+            model,
+            keys,
+            cache=cache,
+            interactive=interactive,
+            status=status,
+        )
+    return _run_chunks_sequential(
+        chunks,
+        model,
+        keys,
+        cache=cache,
+        interactive=interactive,
+        confirm_secondary=confirm_secondary,
+        status=status,
+    )
 
+
+def _run_chunks_sequential(
+    chunks: list[list[dict[str, Any]]],
+    model: str,
+    keys: KeyInfo,
+    *,
+    cache: dict[str, Any] | None,
+    interactive: bool,
+    confirm_secondary: ConfirmSecondaryFn | None = None,
+    status: StatusFactory | None = None,
+) -> tuple[AiOutcome, bool]:
+    """One request at a time, preserving the secondary-key flow."""
     merged: list[AnalysisItem] = []
     overview: str | None = None
     used_cache = False
@@ -275,6 +311,73 @@ def run_chunked_analysis(
         )
         if outcome.kind is not AiOutcomeKind.SUCCESS or outcome.result is None:
             return outcome, False
+        used_cache = used_cache or chunk_cached
+        if overview is None:
+            overview = outcome.result.overview
+        merged.extend(outcome.result.items)
+    return (
+        AiOutcome(
+            AiOutcomeKind.SUCCESS,
+            AnalysisResult(items=tuple(merged), overview=overview or ""),
+        ),
+        used_cache,
+    )
+
+
+def _run_chunks_parallel(
+    chunks: list[list[dict[str, Any]]],
+    model: str,
+    keys: KeyInfo,
+    *,
+    cache: dict[str, Any] | None,
+    interactive: bool,
+    status: StatusFactory | None = None,
+) -> tuple[AiOutcome, bool]:
+    """Bounded concurrent chunks; one status context, primary key only.
+
+    The secondary-key retry is deliberately disabled here: prompting for a
+    terminal answer from several threads at once is unsafe. Single-request
+    runs keep the interactive secondary flow.
+    """
+    results: list[tuple[AiOutcome, bool] | None] = [None] * len(chunks)
+    failure: AiOutcome | None = None
+    lock = threading.Lock()
+
+    def analyze_chunk(index: int, chunk: list[dict[str, Any]]) -> None:
+        nonlocal failure
+        outcome, chunk_cached = run_cached_analysis(
+            chunk,
+            model,
+            keys,
+            cache=cache,
+            interactive=interactive,
+            confirm_secondary=None,
+            status=None,
+        )
+        with lock:
+            if failure is None and outcome.kind is not AiOutcomeKind.SUCCESS:
+                failure = outcome
+            results[index] = (outcome, chunk_cached)
+
+    with status() if status is not None else nullcontext():
+        with ThreadPoolExecutor(max_workers=AI_CONCURRENT_CHUNKS) as pool:
+            futures = [
+                pool.submit(analyze_chunk, index, chunk)
+                for index, chunk in enumerate(chunks)
+            ]
+            for future in futures:
+                future.result()
+
+    if failure is not None:
+        return failure, False
+
+    merged: list[AnalysisItem] = []
+    overview: str | None = None
+    used_cache = False
+    for entry in results:
+        assert entry is not None
+        outcome, chunk_cached = entry
+        assert outcome.result is not None
         used_cache = used_cache or chunk_cached
         if overview is None:
             overview = outcome.result.overview
