@@ -32,7 +32,7 @@ from todoscope.blame import (
     filter_by_age,
 )
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
-from todoscope.changed import ChangedError, changed_files
+from todoscope.changed import ChangedError, changed_files, staged_files
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
     GITIGNORE_SOURCE,
@@ -91,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "path",
+        nargs="?",
         help="file or directory to scan",
     )
     parser.add_argument(
@@ -140,6 +141,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--changed",
         metavar="REF",
         help="scan only tracked files whose content differs from this git ref",
+    )
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="scan only files staged for commit",
+    )
+    parser.add_argument(
+        "--install-hook",
+        action="store_true",
+        help="install a pre-commit hook that gates staged findings",
+    )
+    parser.add_argument(
+        "--uninstall-hook",
+        action="store_true",
+        help="remove the pre-commit hook installed by todoscope",
     )
     parser.add_argument(
         "--no-cache",
@@ -198,6 +214,72 @@ def _prompt_secondary() -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
+HOOK_MARKER = "# installed by todoscope"
+HOOK_SCRIPT = f"""#!/bin/sh
+{HOOK_MARKER}
+exec todoscope . --staged --quiet --fail
+"""
+
+
+def _hook_path(root: Path) -> Path | None:
+    git_dir = root / ".git"
+    if not git_dir.is_dir():
+        return None
+    return git_dir / "hooks" / "pre-commit"
+
+
+def _install_hook(root: Path) -> int:
+    hook = _hook_path(root)
+    if hook is None:
+        print(
+            "Error: --install-hook requires a regular Git repository "
+            "(worktrees are not supported).",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text(HOOK_SCRIPT, encoding="utf-8")
+        hook.chmod(0o755)
+    except OSError as exc:
+        print(f"Error: could not write the pre-commit hook: {exc}", file=sys.stderr)
+        return 1
+    print(f"Installed pre-commit hook at {hook}")
+    return 0
+
+
+def _uninstall_hook(root: Path) -> int:
+    hook = _hook_path(root)
+    if hook is None:
+        print(
+            "Error: --uninstall-hook requires a regular Git repository "
+            "(worktrees are not supported).",
+            file=sys.stderr,
+        )
+        return 2
+    if not hook.exists():
+        print("No todoscope pre-commit hook is installed.")
+        return 0
+    try:
+        content = hook.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot read {hook}: {exc}", file=sys.stderr)
+        return 1
+    if HOOK_MARKER not in content:
+        print(
+            f"Error: {hook} is not a todoscope hook; refusing to remove it.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        hook.unlink()
+    except OSError as exc:
+        print(f"Error: could not remove the pre-commit hook: {exc}", file=sys.stderr)
+        return 1
+    print(f"Removed pre-commit hook at {hook}")
+    return 0
+
+
 def _ai_skip_line(reason: AiSkipReason, config: Config) -> str | None:
     if reason is AiSkipReason.NO_MODEL:
         return AI_SKIPPED_NO_MODEL
@@ -254,6 +336,15 @@ def main(
     if args.fail_count is not None and args.fail_count < 0:
         print("Error: --fail-count must be a non-negative integer.", file=sys.stderr)
         return 2
+    if args.install_hook and args.uninstall_hook:
+        parser.error("--install-hook and --uninstall-hook cannot be used together.")
+    if args.install_hook or args.uninstall_hook:
+        root = discover_project_root(Path.cwd())
+        if args.install_hook:
+            return _install_hook(root)
+        return _uninstall_hook(root)
+    if args.path is None:
+        parser.error("the following arguments are required: path")
 
     for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
         if value is not None and value < 0:
@@ -308,18 +399,25 @@ def main(
     keys = load_keys(root, spec)
     env_ignored = env_file_is_ignored(root, spec)
 
+    if args.staged and args.changed is not None:
+        parser.error("--staged and --changed cannot be used together.")
     changed_set: set[str] | None = None
-    if args.changed is not None:
+    if args.staged or args.changed is not None:
+        option = "--staged" if args.staged else "--changed"
         if not (root / ".git").exists():
-            print("Error: --changed requires a Git repository.", file=sys.stderr)
+            print(f"Error: {option} requires a Git repository.", file=sys.stderr)
             return 2
         if shutil.which("git") is None:
-            print("Error: --changed requires the git executable.", file=sys.stderr)
+            print(f"Error: {option} requires the git executable.", file=sys.stderr)
             return 2
         try:
-            changed_set = set(changed_files(root, args.changed))
+            if args.staged:
+                changed_set = set(staged_files(root))
+            else:
+                assert args.changed is not None
+                changed_set = set(changed_files(root, args.changed))
         except ChangedError as exc:
-            print(f"Error: --changed failed: {exc}", file=sys.stderr)
+            print(f"Error: {option} failed: {exc}", file=sys.stderr)
             return 2
 
     started = time.perf_counter()
@@ -569,6 +667,7 @@ def main(
                 else None
             ),
             changed_ref=args.changed,
+            staged=args.staged,
             ai_from_cache=ai_from_cache,
             secret_entries=secrets_found,
             gate=(

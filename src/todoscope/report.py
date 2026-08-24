@@ -232,6 +232,7 @@ def json_report(
     ages: dict[str, dict[int, BlameInfo]] | None = None,
     age_filter: dict[str, Any] | None = None,
     changed_ref: str | None = None,
+    staged: bool = False,
     ai_from_cache: bool = False,
     secret_entries: SecretEntries | None = None,
     gate: dict[str, Any] | None = None,
@@ -307,6 +308,7 @@ def json_report(
         }
         | ({"age_filter": age_filter} if age_filter is not None else {})
         | ({"changed_ref": changed_ref} if changed_ref is not None else {})
+        | ({"staged": True} if staged else {})
         | ({"gate": gate} if gate is not None else {})
         | {
             "secrets": (

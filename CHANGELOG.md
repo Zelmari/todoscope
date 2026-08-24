@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.21.0 (2026-08-24)
+
+### Added
+
+- `--staged`: scans only files staged for commit (`git diff --cached`);
+  JSON reports set `"staged": true`; cannot be combined with `--changed`.
+- `todoscope --install-hook` / `--uninstall-hook`: installs and removes a
+  pre-commit hook that gates commits on staged findings
+  (`todoscope . --staged --quiet --fail`, exit 4 blocks the commit).
+  Uninstall refuses to touch hooks todoscope did not install; worktrees are
+  not supported.
+- Committed `.pre-commit-hooks.yaml` so pre-commit-framework users can
+  enable the hook via `repo: https://github.com/Zelmari/todoscope`.
+
+
 ## 0.20.0 (2026-08-24)
 
 ### Changed

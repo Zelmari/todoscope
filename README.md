@@ -52,6 +52,9 @@ todoscope src/ --age --blame  # show both age and attribution
 todoscope src/ --min-age 90   # keep only findings at least 90 days old
 todoscope src/ --max-age 0    # keep only uncommitted findings
 todoscope src/ --changed main # scan only files differing from the main branch
+todoscope src/ --staged       # scan only files staged for commit
+todoscope --install-hook      # install a pre-commit hook that gates staged findings
+todoscope --uninstall-hook    # remove the hook installed by todoscope
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
@@ -99,7 +102,34 @@ from the given git ref (uncommitted changes are included; untracked files
 are not). Ignore and extension rules still apply, and the option composes
 with `--blame`, `--age`, and the age filters. JSON reports include a
 `changed_ref` field. Requires a valid git ref and a Git repository; unknown
-refs fail with exit code 2.
+refs fail with exit code 2. `--staged` does the same for files staged for
+commit (JSON reports set `"staged": true`), and cannot be combined with
+`--changed`.
+
+## Pre-commit
+
+TodoScope can block commits that touch files containing findings:
+
+```bash
+cd your-project
+todoscope --install-hook        # writes .git/hooks/pre-commit
+```
+
+The hook runs `todoscope . --staged --quiet --fail` before every commit:
+any staged finding exits 4 and blocks the commit. `--uninstall-hook`
+removes it (refusing to touch a hook it did not install). Worktrees are not
+supported yet. The repository also ships a
+[`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml), so projects using the
+pre-commit framework can add:
+
+```yaml
+- repo: https://github.com/Zelmari/todoscope
+  rev: v0.21.0
+  hooks:
+    - id: todoscope
+```
+
+(`language: system` — todoscope must be installed, e.g. via pipx.)
 
 ## Configuration
 

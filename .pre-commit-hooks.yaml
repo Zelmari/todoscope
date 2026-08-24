@@ -1,0 +1,7 @@
+- id: todoscope
+  name: todoscope
+  description: Scan staged files for TODO/FIXME maintenance comments
+  entry: todoscope . --staged --quiet --fail
+  language: system
+  always_run: true
+  pass_filenames: false
