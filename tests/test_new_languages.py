@@ -160,3 +160,29 @@ def test_language_proofs(name: str, source: str, expected: tuple[str, ...]) -> N
         text = text.removesuffix("*/")
         normalized.add(text.strip().removeprefix("TODO:").strip())
     assert normalized == set(expected), (name, texts)
+
+
+def test_ruby_hash_comments_reach_findings(tmp_path) -> None:
+    source = "# TODO: ruby real\na = %q{# TODO: percent-q}\n# FIXME: ruby fixme\n"
+    path = tmp_path / "a.rb"
+    path.write_text(source)
+    findings = findings_for_file(path, tmp_path, ("TODO", "FIXME"))
+    assert [(f.marker, f.text) for f in findings] == [
+        ("TODO", "ruby real"),
+        ("FIXME", "ruby fixme"),
+    ]
+
+
+def test_shell_hash_comments_reach_findings(tmp_path) -> None:
+    source = "#!/bin/sh\n# TODO: shell real\necho 'TODO: string'\n# TODO: second\n"
+    findings = check(tmp_path, "run.sh", source)
+    assert [(f.marker, f.text, f.line) for f in findings] == [
+        ("TODO", "shell real", 2),
+        ("TODO", "second", 4),
+    ]
+
+
+def test_php_hash_and_slash_comments_reach_findings(tmp_path) -> None:
+    source = "<?php\n# TODO: hash style\n// TODO: slash style\n/* TODO: block */\n"
+    findings = check(tmp_path, "a.php", source)
+    assert [f.text for f in findings] == ["hash style", "slash style", "block"]

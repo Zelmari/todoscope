@@ -14,6 +14,8 @@ from pathlib import Path
 from todoscope.config import EXTENSION_LANGUAGES
 from todoscope.parsing.comments import Comment, Language, extract_comments
 
+_HASH_DELIMITER_LANGUAGES = frozenset({Language.PYTHON, Language.RUBY, Language.SHELL})
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -42,7 +44,15 @@ def strip_marker(normalised: str, marker: str) -> str:
 def normalise_line_comment(language: Language, raw: str) -> str:
     """Remove line-comment delimiters and leading whitespace."""
     text = raw
-    if language is Language.PYTHON:
+    if language is Language.PHP:
+        stripped = text.lstrip()
+        if stripped.startswith("#"):
+            text = stripped.lstrip("#")
+        else:
+            text = stripped.lstrip("/")
+            if text.startswith("!"):
+                text = text[1:]
+    elif language in _HASH_DELIMITER_LANGUAGES:
         text = text.lstrip("#")
     else:
         text = text.lstrip("/")

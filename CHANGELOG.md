@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.1 (2026-08-24)
+
+### Fixed
+
+- Ruby, Shell, and PHP `#`-style comments now reach marker matching
+  (0.22.0 only recognised `//`-style delimiters for non-Python languages).
+
+
 ## 0.22.0 (2026-08-24)
 
 ### Added
