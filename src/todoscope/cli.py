@@ -61,6 +61,7 @@ from todoscope.report import (
     standard_report,
     verbose_report,
 )
+from todoscope.sarif import sarif_report
 from todoscope.scan import scan
 from todoscope.secrets import findings_with_secrets
 from todoscope.status import StatusContext
@@ -101,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "sarif"),
         default="text",
         help="output format (default: text)",
     )
@@ -418,6 +419,18 @@ def main(
             ai_reason,
             blames if args.blame else None,
             blames if args.age else None,
+        )
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.format == "sarif":
+        data = sarif_report(
+            findings,
+            config,
+            files_scanned=stats.scanned,
+            ai_result=ai_result,
+            blames=blames if args.blame else None,
+            ages=blames if args.age else None,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

@@ -50,6 +50,7 @@ todoscope src/ --age --blame  # show both age and attribution
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
+todoscope src/ --format sarif # SARIF 2.1.0 report for code-scanning tools
 ```
 
 That's it. Findings are sorted by folder depth, then path, then line, and
@@ -73,8 +74,12 @@ metadata, findings, skipped counts, optional blame and age data, and the AI
 section with a machine-readable status/reason). Age entries include a status,
 an exact day count, and the commit date; uncommitted or unavailable entries
 use `null` for values that do not apply. Without `--ai`, the AI section is
-`null`. Verbose details and errors always go to stderr. JSON never contains
-API keys or environment values.
+`null`. `--format sarif` prints a deterministic SARIF 2.1.0 document with one
+rule per configured marker; AI priorities map to SARIF levels (High →
+`error`, Medium → `warning`, Low/Unclear → `note`), and blame and age data
+are attached as result properties when requested. Verbose details and errors
+always go to stderr. Neither format ever contains API keys or environment
+values.
 
 ## Configuration
 
@@ -172,6 +177,9 @@ fail a pipeline just because comments exist. Common patterns:
 - Log findings: `todoscope . --quiet` (one line per finding).
 - Machine-readable reports: `todoscope . --format json` and upload or parse
   the JSON in later steps.
+- Code-scanning alerts: `todoscope . --format sarif > todoscope.sarif` and
+  upload the file with `github/codeql-action/upload-sarif` (or another
+  SARIF consumer) to surface findings as alerts in the Security tab.
 - AI in CI: set `TODOSCOPE_API_KEY` as a repository secret and a `model` in
   `.todoscope.json`; non-interactive runs skip the secondary key safely.
 

@@ -125,7 +125,7 @@ def age_detail_line(info: BlameInfo | None, *, today: date | None = None) -> str
     return f"   Age: {days} {day_word} (committed {info.committed_date})"
 
 
-def _age_entry(info: BlameInfo | None, *, today: date | None = None) -> dict[str, Any]:
+def age_entry(info: BlameInfo | None, *, today: date | None = None) -> dict[str, Any]:
     if info is None or (not info.uncommitted and not info.committed_date):
         return {"status": "unavailable", "days": None, "committed": None}
     if info.uncommitted:
@@ -250,7 +250,7 @@ def json_report(
             )
         if ages is not None:
             info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
-            entry["age"] = _age_entry(info)
+            entry["age"] = age_entry(info)
         return entry
 
     return {

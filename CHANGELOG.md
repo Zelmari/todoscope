@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0 (2026-08-24)
+
+### Added
+
+- `--format sarif`: deterministic SARIF 2.1.0 output with one rule per
+  configured marker. AI priorities map to SARIF levels (High → `error`,
+  Medium → `warning`, Low/Unclear → `note`); blame and age data are attached
+  as result properties when requested. Ready for `upload-sarif`-style
+  code-scanning consumers. Never contains API keys or environment values.
+
+
 ## 0.11.0 (2026-08-24)
 
 ### Added
