@@ -204,6 +204,7 @@ def json_report(
     ai_reason: str | None = None,
     blames: dict[str, dict[int, BlameInfo]] | None = None,
     ages: dict[str, dict[int, BlameInfo]] | None = None,
+    age_filter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -270,7 +271,7 @@ def json_report(
             "symlinks": stats.symlinks,
         },
         "ai": ai_section,
-    }
+    } | ({"age_filter": age_filter} if age_filter is not None else {})
 
 
 def verbose_report(
@@ -286,6 +287,7 @@ def verbose_report(
     blame_files: int | None = None,
     blame_unavailable: int | None = None,
     blame_budget_exceeded: bool = False,
+    age_filter_removed: int | None = None,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -319,6 +321,8 @@ def verbose_report(
         lines.append(f"Blame unavailable: {blame_unavailable}")
         if blame_budget_exceeded:
             lines.append("Blame budget exceeded: yes")
+    if age_filter_removed is not None:
+        lines.append(f"Findings excluded by age filter: {age_filter_removed}")
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"

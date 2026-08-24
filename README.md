@@ -47,6 +47,8 @@ todoscope src/ --ai           # add AI interpretations and priorities
 todoscope src/ --blame        # add who-authored-each-finding via git blame
 todoscope src/ --age          # add time since each finding was committed
 todoscope src/ --age --blame  # show both age and attribution
+todoscope src/ --min-age 90   # keep only findings at least 90 days old
+todoscope src/ --max-age 0    # keep only uncommitted findings
 todoscope src/ --quiet        # one numbered finding per line, nothing else
 todoscope src/ --verbose      # extra details on stderr
 todoscope src/ --format json  # machine-readable JSON report on stdout
@@ -68,6 +70,13 @@ finding's current marker line was committed. Uncommitted lines are identified
 as such, while unavailable history is reported without failing the scan. Both
 options are rejected with `--quiet`; when combined, they share a single
 `git blame --porcelain` call per file. Git history data never reaches the AI.
+
+`--min-age DAYS` and `--max-age DAYS` filter the report — and any AI
+analysis — to findings whose committed age falls in the range. Uncommitted
+lines count as age 0, so `--max-age 0` shows only uncommitted work; lines
+with unavailable history are excluded while a filter is active. Both require
+Git, are rejected with `--quiet`, and JSON reports include an `age_filter`
+object with the bounds and the number of removed findings.
 
 `--format json` prints a deterministic JSON document to stdout (scan
 metadata, findings, skipped counts, optional blame and age data, and the AI

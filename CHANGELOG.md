@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0 (2026-08-24)
+
+### Added
+
+- `--min-age DAYS` and `--max-age DAYS`: filter the report — and any AI
+  analysis — to findings whose committed age falls in the range. Uncommitted
+  lines count as age 0; unavailable history is excluded while a filter is
+  active. Both require Git and are rejected with `--quiet`; JSON reports
+  gain an `age_filter` object with the bounds and the removed count.
+
+
 ## 0.12.0 (2026-08-24)
 
 ### Added

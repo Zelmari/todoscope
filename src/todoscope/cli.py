@@ -28,6 +28,7 @@ from todoscope.blame import (
     BlameInfo,
     BlameTimeoutError,
     blame_for_file,
+    filter_by_age,
 )
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
@@ -116,6 +117,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show time since each finding's line was committed",
     )
+    parser.add_argument(
+        "--min-age",
+        type=int,
+        metavar="DAYS",
+        help="keep only findings at least this many days old",
+    )
+    parser.add_argument(
+        "--max-age",
+        type=int,
+        metavar="DAYS",
+        help="keep only findings at most this many days old",
+    )
     return parser
 
 
@@ -203,6 +216,14 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
+        if value is not None and value < 0:
+            print(
+                f"Error: {option} must be a non-negative number of days.",
+                file=sys.stderr,
+            )
+            return 2
+
     target = Path(os.path.abspath(args.path))
     if not target.exists():
         print(f"Error: '{args.path}' does not exist.", file=sys.stderr)
@@ -262,16 +283,72 @@ def main(
         print("--quiet and --blame cannot be used together.", file=sys.stderr)
     if args.quiet and args.age:
         print("--quiet and --age cannot be used together.", file=sys.stderr)
+    if args.quiet and args.min_age is not None:
+        print("--quiet and --min-age cannot be used together.", file=sys.stderr)
+    if args.quiet and args.max_age is not None:
+        print("--quiet and --max-age cannot be used together.", file=sys.stderr)
 
-    do_history = (args.blame or args.age) and not args.quiet
+    age_filtering = args.min_age is not None or args.max_age is not None
+    do_history = (args.blame or args.age or age_filtering) and not args.quiet
     if do_history:
-        option = "--blame" if args.blame else "--age"
+        option = (
+            "--blame"
+            if args.blame
+            else "--age"
+            if args.age
+            else "--min-age"
+            if args.min_age is not None
+            else "--max-age"
+        )
         if not (root / ".git").exists():
             print(f"Error: {option} requires a Git repository.", file=sys.stderr)
             return 2
         if shutil.which("git") is None:
             print(f"Error: {option} requires the git executable.", file=sys.stderr)
             return 2
+
+    blames: dict[str, dict[int, BlameInfo]] | None = None
+    blame_missing = 0
+    blame_budget_exceeded = False
+    if do_history:
+        blames = {}
+        paths = sorted({indexed.finding.path for indexed in findings})
+        blame_started = time.monotonic()
+        for index, rel_path in enumerate(paths):
+            elapsed = time.monotonic() - blame_started
+            remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
+            if remaining <= 0:
+                blame_budget_exceeded = True
+                break
+            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
+            try:
+                blames[rel_path] = blame_for_file(
+                    root / rel_path,
+                    repo_root=root,
+                    timeout=timeout,
+                )
+            except BlameTimeoutError:
+                if budget_limited:
+                    blame_budget_exceeded = True
+                    break
+            except BlameError:
+                pass
+            if (
+                index < len(paths) - 1
+                and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
+            ):
+                blame_budget_exceeded = True
+                break
+        blame_missing = len(paths) - len(blames)
+
+    removed_by_age = 0
+    if age_filtering and blames is not None:
+        filtered = filter_by_age(
+            findings, blames, min_age=args.min_age, max_age=args.max_age
+        )
+        removed_by_age = len(findings) - len(filtered)
+        findings = filtered
 
     eligibility = ai_eligibility(
         config,
@@ -321,41 +398,6 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
-    blames: dict[str, dict[int, BlameInfo]] | None = None
-    blame_missing = 0
-    blame_budget_exceeded = False
-    if do_history:
-        blames = {}
-        paths = sorted({indexed.finding.path for indexed in findings})
-        blame_started = time.monotonic()
-        for index, rel_path in enumerate(paths):
-            elapsed = time.monotonic() - blame_started
-            remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
-            if remaining <= 0:
-                blame_budget_exceeded = True
-                break
-            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
-            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
-            try:
-                blames[rel_path] = blame_for_file(
-                    root / rel_path,
-                    repo_root=root,
-                    timeout=timeout,
-                )
-            except BlameTimeoutError:
-                if budget_limited:
-                    blame_budget_exceeded = True
-                    break
-            except BlameError:
-                pass
-            if (
-                index < len(paths) - 1
-                and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
-            ):
-                blame_budget_exceeded = True
-                break
-        blame_missing = len(paths) - len(blames)
-
     if args.verbose:
         gitignore = root / ".gitignore"
         gitignore_path = gitignore if gitignore.is_file() else None
@@ -379,6 +421,7 @@ def main(
                 secondary_key_configured=keys.secondary is not None,
                 ai_payload_characters=ai_payload_chars,
                 serial_retried_chunks=stats.serial_retry_chunks,
+                age_filter_removed=removed_by_age if age_filtering else None,
                 **blame_kwargs,
             ),
             file=sys.stderr,
@@ -419,6 +462,15 @@ def main(
             ai_reason,
             blames if args.blame else None,
             blames if args.age else None,
+            age_filter=(
+                {
+                    "min_age": args.min_age,
+                    "max_age": args.max_age,
+                    "removed": removed_by_age,
+                }
+                if age_filtering
+                else None
+            ),
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

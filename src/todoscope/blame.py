@@ -11,8 +11,10 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+
+from todoscope.scan import IndexedFinding
 
 BLAME_TIMEOUT_SECONDS = 30.0
 """Per-file cap for a single ``git blame`` call."""
@@ -140,3 +142,44 @@ def blame_for_file(
     if completed.returncode != 0:
         raise BlameError(f"blame failed for {arg}: {completed.stderr.strip()}")
     return parse_porcelain(completed.stdout)
+
+
+def age_days(info: BlameInfo | None, *, today: date | None = None) -> int | None:
+    """Days since the line was committed; 0 when uncommitted, None if unknown."""
+    if info is None or (not info.uncommitted and not info.committed_date):
+        return None
+    if info.uncommitted:
+        return 0
+    if today is None:
+        today = date.today()
+    committed = date.fromisoformat(info.committed_date)
+    return max((today - committed).days, 0)
+
+
+def filter_by_age(
+    findings: tuple[IndexedFinding, ...],
+    blames: dict[str, dict[int, BlameInfo]],
+    *,
+    min_age: int | None,
+    max_age: int | None,
+    today: date | None = None,
+) -> tuple[IndexedFinding, ...]:
+    """Keep findings whose committed age satisfies the range.
+
+    Uncommitted lines count as age 0; lines with unavailable history carry
+    no age and are excluded whenever a filter is active.
+    """
+    if min_age is None and max_age is None:
+        return findings
+    kept: list[IndexedFinding] = []
+    for indexed in findings:
+        info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+        days = age_days(info, today=today)
+        if days is None:
+            continue
+        if min_age is not None and days < min_age:
+            continue
+        if max_age is not None and days > max_age:
+            continue
+        kept.append(indexed)
+    return tuple(kept)
