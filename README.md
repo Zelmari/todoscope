@@ -55,6 +55,9 @@ todoscope src/ --max-age 0    # keep only uncommitted findings
 todoscope src/ --changed main # scan only files differing from the main branch
 todoscope src/ --staged       # scan only files staged for commit
 todoscope src/ --diff         # report findings added since the last scan
+todoscope src/ --stats        # print only the scan summary line
+todoscope src/ --sort age     # order text findings by age (oldest first)
+todoscope src/ --group-by marker  # group text findings by marker or directory
 todoscope --install-hook      # install a pre-commit hook that gates staged findings
 todoscope --uninstall-hook    # remove the hook installed by todoscope
 todoscope src/ --quiet        # one numbered finding per line, nothing else
@@ -125,6 +128,18 @@ must be a whole word (`# TODO: accepted @ignore`), so `x@ignore` or
 `@ignore,` do not match. Secret screening (`--check-secrets`) deliberately
 still flags suppressed comments — credentials in comments matter regardless
 of the directive.
+
+### Presentation options
+
+- `--stats` prints only the summary line (rejected together with `--quiet`).
+- `--sort` orders the text report: `line` (default), `path`, `age` (requires
+  Git; oldest first, unavailable last), or `priority` (requires a completed
+  AI analysis; High first).
+- `--group-by` renders grouped sections: `marker` or `directory`
+  (rejected with `--quiet`).
+
+These are presentation-only: scan IDs, JSON, SARIF, GitHub Actions output,
+AI analysis, and the CI gate all keep the canonical scan order.
 
 ## Pre-commit
 

@@ -72,8 +72,10 @@ from todoscope.report import (
     QUIET_AI_CONFLICT,
     SecretEntries,
     json_report,
+    order_findings,
     payload_too_large_message,
     quiet_report,
+    scan_header,
     secrets_skip_line,
     standard_report,
     verbose_report,
@@ -173,6 +175,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--diff",
         action="store_true",
         help="report findings added since the last scan",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="print only the scan summary line",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=("line", "path", "age", "priority"),
+        default="line",
+        help="presentation order for text reports (default: line)",
+    )
+    parser.add_argument(
+        "--group-by",
+        choices=("none", "marker", "directory"),
+        default="none",
+        help="group text report sections (default: none)",
     )
     parser.add_argument(
         "--no-cache",
@@ -362,6 +381,10 @@ def main(
         return _uninstall_hook(root)
     if args.path is None:
         parser.error("the following arguments are required: path")
+    if args.stats and args.quiet:
+        parser.error("--stats and --quiet cannot be used together.")
+    if args.quiet and args.group_by != "none":
+        parser.error("--group-by cannot be used with --quiet.")
 
     for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
         if value is not None and value < 0:
@@ -475,13 +498,18 @@ def main(
         print("--quiet and --check-secrets cannot be used together.", file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
-    do_history = (args.blame or args.age or age_filtering) and not args.quiet
+    sort_by_age = args.sort == "age"
+    do_history = (
+        args.blame or args.age or age_filtering or sort_by_age
+    ) and not args.quiet
     if do_history:
         option = (
             "--blame"
             if args.blame
             else "--age"
             if args.age
+            else "--sort age"
+            if sort_by_age
             else "--min-age"
             if args.min_age is not None
             else "--max-age"
@@ -621,6 +649,13 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
+    if args.sort == "priority" and ai_result is None:
+        print(
+            "Error: --sort priority requires a completed AI analysis.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.verbose:
         gitignore = root / ".gitignore"
         gitignore_path = gitignore if gitignore.is_file() else None
@@ -665,7 +700,21 @@ def main(
         )
 
     if args.quiet:
-        report = quiet_report(diff_new if args.diff else findings)
+        report = quiet_report(
+            order_findings(
+                diff_new if args.diff else findings,
+                args.sort,
+                blames=blames,
+                ai_by_id=(
+                    {item.id: item for item in ai_result.items}
+                    if ai_result is not None
+                    else None
+                ),
+            )
+        )
+    elif args.stats and args.format == "text":
+        print(scan_header(stats.scanned, args.path, len(findings), config))
+        return gate_exit
     else:
         skip_line = (
             ai_failure_line
@@ -685,6 +734,8 @@ def main(
             secret_entries=secrets_found,
             diff_new=diff_new if args.diff else None,
             diff_removed=len(diff_removed),
+            sort=args.sort,
+            group_by=args.group_by,
         )
 
     if args.format == "json":

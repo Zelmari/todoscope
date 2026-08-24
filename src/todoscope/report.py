@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from todoscope.ai import AnalysisItem, AnalysisResult
-from todoscope.blame import BlameInfo
+from todoscope.blame import BlameInfo, age_days
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
 from todoscope.scan import IndexedFinding
@@ -127,6 +127,69 @@ def _finding_line(indexed: IndexedFinding) -> str:
     return f"{indexed.id}. {finding.path}:{finding.line}: {finding.marker}{suffix}"
 
 
+_PRIORITY_RANKS = {"High": 0, "Medium": 1, "Low": 2, "Unclear": 3}
+
+
+def order_findings(
+    findings: tuple[IndexedFinding, ...],
+    sort: str,
+    *,
+    blames: dict[str, dict[int, BlameInfo]] | None = None,
+    ai_by_id: dict[int, AnalysisItem] | None = None,
+) -> tuple[IndexedFinding, ...]:
+    """Presentation order for text reports; scan IDs stay unchanged."""
+    if sort == "path":
+        return tuple(
+            sorted(
+                findings,
+                key=lambda f: (
+                    f.finding.path.casefold(),
+                    f.finding.path,
+                    f.finding.line,
+                ),
+            )
+        )
+    if sort == "age":
+
+        def age_key(f: IndexedFinding) -> tuple[bool, int, str, int]:
+            info = (
+                blames.get(f.finding.path, {}).get(f.finding.line)
+                if blames is not None
+                else None
+            )
+            days = age_days(info)
+            return (days is None, days or 0, f.finding.path.casefold(), f.finding.line)
+
+        return tuple(sorted(findings, key=age_key))
+    if sort == "priority":
+
+        def priority_key(f: IndexedFinding) -> tuple[int, int]:
+            item = ai_by_id.get(f.id) if ai_by_id is not None else None
+            rank = _PRIORITY_RANKS.get(item.priority, 4) if item is not None else 4
+            return (rank, f.id)
+
+        return tuple(sorted(findings, key=priority_key))
+    return findings
+
+
+def group_findings(
+    findings: tuple[IndexedFinding, ...], group_by: str
+) -> tuple[tuple[str, tuple[IndexedFinding, ...]], ...]:
+    """Group findings by marker or containing directory, casefolded order."""
+    groups: dict[str, list[IndexedFinding]] = {}
+    for indexed in findings:
+        if group_by == "marker":
+            key = indexed.finding.marker
+        else:
+            path = indexed.finding.path
+            key = path.rsplit("/", 1)[0] if "/" in path else "."
+        groups.setdefault(key, []).append(indexed)
+    return tuple(
+        (key, tuple(group))
+        for key, group in sorted(groups.items(), key=lambda kv: kv[0].casefold())
+    )
+
+
 def _ai_detail_line(item: AnalysisItem) -> str:
     return f"   AI: {item.interpretation} ({item.priority})"
 
@@ -171,6 +234,25 @@ def age_entry(info: BlameInfo | None, *, today: date | None = None) -> dict[str,
     }
 
 
+def _finding_block(
+    indexed: IndexedFinding,
+    blames: dict[str, dict[int, BlameInfo]] | None,
+    ages: dict[str, dict[int, BlameInfo]] | None,
+    ai_by_id: dict[int, AnalysisItem],
+) -> str:
+    block = [_finding_line(indexed)]
+    if blames is not None:
+        file_blames = blames.get(indexed.finding.path, {})
+        block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
+    if ages is not None:
+        file_ages = ages.get(indexed.finding.path, {})
+        block.append(age_detail_line(file_ages.get(indexed.finding.line)))
+    item = ai_by_id.get(indexed.id)
+    if item is not None:
+        block.append(_ai_detail_line(item))
+    return "\n".join(block)
+
+
 def standard_report(
     findings: tuple[IndexedFinding, ...],
     files_scanned: int,
@@ -184,6 +266,8 @@ def standard_report(
     secret_entries: SecretEntries | None = None,
     diff_new: tuple[IndexedFinding, ...] | None = None,
     diff_removed: int = 0,
+    sort: str = "line",
+    group_by: str = "none",
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -198,23 +282,24 @@ def standard_report(
         return "\n".join(lines)
 
     lines.append("")
-    lines.append(marker_label(config))
-    lines.append("")
     ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
-    blocks: list[str] = []
-    for indexed in findings:
-        block = [_finding_line(indexed)]
-        if blames is not None:
-            file_blames = blames.get(indexed.finding.path, {})
-            block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
-        if ages is not None:
-            file_ages = ages.get(indexed.finding.path, {})
-            block.append(age_detail_line(file_ages.get(indexed.finding.line)))
-        item = ai_by_id.get(indexed.id)
-        if item is not None:
-            block.append(_ai_detail_line(item))
-        blocks.append("\n".join(block))
-    lines.append("\n\n".join(blocks))
+    ordered = order_findings(findings, sort, blames=blames, ai_by_id=ai_by_id)
+    if group_by == "none":
+        lines.append(marker_label(config))
+        lines.append("")
+        blocks = [
+            _finding_block(indexed, blames, ages, ai_by_id) for indexed in ordered
+        ]
+        lines.append("\n\n".join(blocks))
+    else:
+        sections: list[str] = []
+        for key, group in group_findings(ordered, group_by):
+            header = f"{key} comments" if group_by == "marker" else key
+            blocks = [
+                _finding_block(indexed, blames, ages, ai_by_id) for indexed in group
+            ]
+            sections.append(f"{header}\n\n" + "\n\n".join(blocks))
+        lines.append("\n\n".join(sections))
     if secret_entries:
         lines.append("")
         lines.append(secrets_section(secret_entries))

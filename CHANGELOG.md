@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.26.0 (2026-08-24)
+
+### Added
+
+- `--stats`: prints only the scan summary line (rejected with `--quiet`).
+- `--sort {line,path,age,priority}`: presentation order for text reports;
+  `age` requires Git, `priority` requires a completed AI analysis.
+- `--group-by {marker,directory}`: grouped text sections in casefolded
+  group order. All options are presentation-only — IDs, JSON, SARIF,
+  GitHub Actions output, AI, and the gate keep the canonical scan order.
+
+
 ## 0.25.0 (2026-08-24)
 
 ### Added
