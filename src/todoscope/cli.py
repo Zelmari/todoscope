@@ -30,6 +30,7 @@ from todoscope.blame import (
     blame_for_file,
     filter_by_age,
 )
+from todoscope.cache import cache_path, load_cache, run_cached_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files
 from todoscope.config import Config, ConfigError, discover_project_root, load_config
 from todoscope.discovery import (
@@ -45,7 +46,6 @@ from todoscope.openai_client import (
     AiOutcomeKind,
     ConfirmSecondaryFn,
     StatusFactory,
-    run_ai_analysis,
 )
 from todoscope.report import (
     AI_SKIPPED_NO_KEY,
@@ -134,6 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--changed",
         metavar="REF",
         help="scan only tracked files whose content differs from this git ref",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="ignore the local AI result cache",
     )
     return parser
 
@@ -404,6 +409,7 @@ def main(
     ai_result = None
     ai_failure_line: str | None = None
     outcome_kind: AiOutcomeKind | None = None
+    ai_from_cache = False
     if eligibility.reason is AiSkipReason.ELIGIBLE:
         assert items is not None
         assert config.model is not None
@@ -411,14 +417,21 @@ def main(
             status = StatusContext
         if confirm_secondary is None:
             confirm_secondary = _prompt_secondary
-        outcome = run_ai_analysis(
+        cache_file = None if args.no_cache else cache_path()
+        cache_data = None if cache_file is None else load_cache(cache_file)
+        outcome, ai_from_cache = run_cached_analysis(
             items,
             config.model,
             keys,
+            cache=cache_data,
             interactive=interactive,
             confirm_secondary=confirm_secondary,
             status=status,
         )
+        if outcome.kind is AiOutcomeKind.SUCCESS and cache_file is not None:
+            assert cache_data is not None
+            if not save_cache(cache_file, cache_data):
+                print("Warning: could not write the AI cache.", file=sys.stderr)
         outcome_kind = outcome.kind
         if outcome.kind is AiOutcomeKind.SUCCESS:
             ai_result = outcome.result
@@ -450,6 +463,11 @@ def main(
                 serial_retried_chunks=stats.serial_retry_chunks,
                 age_filter_removed=removed_by_age if age_filtering else None,
                 changed_files=(len(changed_set) if changed_set is not None else None),
+                ai_from_cache=(
+                    ai_from_cache
+                    if eligibility.reason is AiSkipReason.ELIGIBLE
+                    else None
+                ),
                 **blame_kwargs,
             ),
             file=sys.stderr,
@@ -472,6 +490,7 @@ def main(
             ai_result,
             blames if args.blame else None,
             blames if args.age else None,
+            ai_from_cache=ai_from_cache,
         )
 
     if args.format == "json":
@@ -500,6 +519,7 @@ def main(
                 else None
             ),
             changed_ref=args.changed,
+            ai_from_cache=ai_from_cache,
         )
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0

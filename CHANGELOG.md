@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.15.0 (2026-08-24)
+
+### Added
+
+- Local AI result cache: interpretations and priorities are cached under the
+  XDG cache directory (`~/.cache/todoscope` on Linux), keyed by comment
+  hash and model, so repeat runs with identical comments make no API
+  request. Partial cache hits send only the missing findings; `--no-cache`
+  bypasses the cache. The cache stores only hashes plus interpretations and
+  priorities — never paths, line numbers, or source — and is best-effort:
+  broken or unwritable cache files never fail a scan. Text reports note
+  "Interpretations served from the local cache." and JSON reports set
+  `"ai": {"cached": true}`.
+
+
 ## 0.14.0 (2026-08-24)
 
 ### Added

@@ -44,6 +44,7 @@ todoscope src/                # scan a folder recursively (local only)
 todoscope src/main.py         # scan one file
 todoscope .                   # scan the whole project
 todoscope src/ --ai           # add AI interpretations and priorities
+todoscope src/ --ai --no-cache  # bypass the local AI result cache
 todoscope src/ --blame        # add who-authored-each-finding via git blame
 todoscope src/ --age          # add time since each finding was committed
 todoscope src/ --age --blame  # show both age and attribution
@@ -144,6 +145,12 @@ report: per finding you get a short interpretation and an estimated priority
 (High / Medium / Low / Unclear), plus an overall summary. If the request
 fails and a secondary key is configured, an interactive terminal offers one
 retry with it — the secondary key is never used silently.
+
+Results are cached locally (XDG cache directory, `~/.cache/todoscope` on
+Linux): repeat runs with identical comment text cost no API budget. The
+cache stores only comment hashes plus interpretations and priorities —
+never paths, line numbers, or source — and is best-effort: a broken or
+unwritable cache never fails a scan. Pass `--no-cache` to bypass it.
 
 > Priorities are estimated from comment text only. No source code was
 > provided to the AI.

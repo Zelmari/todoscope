@@ -149,6 +149,7 @@ def standard_report(
     ai_result: AnalysisResult | None = None,
     blames: dict[str, dict[int, BlameInfo]] | None = None,
     ages: dict[str, dict[int, BlameInfo]] | None = None,
+    ai_from_cache: bool = False,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -180,6 +181,8 @@ def standard_report(
         lines.append("")
         lines.append(ai_result.overview)
         lines.append("")
+        if ai_from_cache:
+            lines.append("Interpretations served from the local cache.")
         lines.extend(DISCLAIMER_LINES)
     elif ai_skip_line is not None:
         lines.append("")
@@ -206,6 +209,7 @@ def json_report(
     ages: dict[str, dict[int, BlameInfo]] | None = None,
     age_filter: dict[str, Any] | None = None,
     changed_ref: str | None = None,
+    ai_from_cache: bool = False,
 ) -> dict[str, Any]:
     """Deterministic JSON report for agents (Overarching 31, MS-12).
 
@@ -226,6 +230,8 @@ def json_report(
             "overview": ai_result.overview,
             "disclaimer": list(DISCLAIMER_LINES),
         }
+        if ai_from_cache:
+            ai_section["cached"] = True
     elif ai_status is not None:
         ai_section = {"status": ai_status}
         if ai_reason is not None:
@@ -294,6 +300,7 @@ def verbose_report(
     blame_budget_exceeded: bool = False,
     age_filter_removed: int | None = None,
     changed_files: int | None = None,
+    ai_from_cache: bool | None = None,
     serial_retried_chunks: int = 0,
 ) -> str:
     """Extra scan details; written to stderr, never contains secrets."""
@@ -331,6 +338,8 @@ def verbose_report(
         lines.append(f"Findings excluded by age filter: {age_filter_removed}")
     if changed_files is not None:
         lines.append(f"Changed files scanned: {changed_files}")
+    if ai_from_cache is not None:
+        lines.append(f"AI results from cache: {'yes' if ai_from_cache else 'no'}")
     if serial_retried_chunks:
         lines.append(
             f"Chunks retried serially after worker crash: {serial_retried_chunks}"
