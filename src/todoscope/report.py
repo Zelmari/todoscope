@@ -339,6 +339,7 @@ def json_report(
     blames: dict[str, dict[int, BlameInfo]] | None = None,
     ages: dict[str, dict[int, BlameInfo]] | None = None,
     age_filter: dict[str, Any] | None = None,
+    author_filter: str | None = None,
     changed_ref: str | None = None,
     staged: bool = False,
     ai_from_cache: bool = False,
@@ -418,6 +419,7 @@ def json_report(
             "ai": ai_section,
         }
         | ({"age_filter": age_filter} if age_filter is not None else {})
+        | ({"author_filter": author_filter} if author_filter is not None else {})
         | ({"changed_ref": changed_ref} if changed_ref is not None else {})
         | ({"staged": True} if staged else {})
         | ({"gate": gate} if gate is not None else {})
@@ -479,6 +481,7 @@ def verbose_report(
     blame_unavailable: int | None = None,
     blame_budget_exceeded: bool = False,
     age_filter_removed: int | None = None,
+    author_filter_removed: int | None = None,
     changed_files: int | None = None,
     ai_from_cache: bool | None = None,
     secrets_detected: int | None = None,
@@ -522,6 +525,8 @@ def verbose_report(
             lines.append("Blame budget exceeded: yes")
     if age_filter_removed is not None:
         lines.append(f"Findings excluded by age filter: {age_filter_removed}")
+    if author_filter_removed is not None:
+        lines.append(f"Findings excluded by author filter: {author_filter_removed}")
     if changed_files is not None:
         lines.append(f"Changed files scanned: {changed_files}")
     if ai_from_cache is not None:

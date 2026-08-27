@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.27.0 (2026-08-27)
+
+### Added
+
+- `--author PATTERN` / `-a`: filters findings to those authored by a matching
+  git author name or email address (case-insensitive substring match);
+  requires Git and is rejected with `--quiet`; JSON reports gain an
+  `author_filter` field.
+- Ad-hoc CLI overrides: `--config PATH` (use an explicit config file),
+  `--marker MARKER` (override marker list), `--exclude PATTERN` (add path or
+  glob exclusions), and `--extension EXT` (override scanned extensions).
+- Git worktree support for `todoscope --install-hook` and `--uninstall-hook`.
+- New languages: SQL (`.sql`), Lua (`.lua`), Zig (`.zig`), Dart (`.dart`),
+  Scala (`.scala .sc`), and Elixir (`.ex .exs`).
+
+
 ## 0.26.0 (2026-08-24)
 
 ### Added

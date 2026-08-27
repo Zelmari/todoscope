@@ -186,3 +186,74 @@ def test_php_hash_and_slash_comments_reach_findings(tmp_path) -> None:
     source = "<?php\n# TODO: hash style\n// TODO: slash style\n/* TODO: block */\n"
     findings = check(tmp_path, "a.php", source)
     assert [f.text for f in findings] == ["hash style", "slash style", "block"]
+
+
+def test_sql_comments(tmp_path) -> None:
+    source = "-- TODO: sql line\nSELECT '-- not';\n/* TODO: sql block */\n"
+    findings = check(tmp_path, "schema.sql", source)
+    assert [(f.text, f.line) for f in findings] == [("sql line", 1), ("sql block", 3)]
+
+
+def test_lua_comments(tmp_path) -> None:
+    source = (
+        "-- TODO: lua line\n"
+        'local s = "-- not comment"\n'
+        "--[[ TODO: lua block ]]\n"
+        "--[=[ TODO: lua long block ]=]\n"
+    )
+    findings = check(tmp_path, "main.lua", source)
+    assert [(f.text, f.line) for f in findings] == [
+        ("lua line", 1),
+        ("lua block", 3),
+        ("lua long block", 4),
+    ]
+
+
+def test_zig_comments(tmp_path) -> None:
+    source = (
+        "// TODO: zig line\n"
+        "/// TODO: zig doc\n"
+        "//! TODO: zig top doc\n"
+        'const s = "// not comment";\n'
+    )
+    findings = check(tmp_path, "main.zig", source)
+    assert [(f.text, f.line) for f in findings] == [
+        ("zig line", 1),
+        ("zig doc", 2),
+        ("zig top doc", 3),
+    ]
+
+
+def test_dart_comments(tmp_path) -> None:
+    source = (
+        "// TODO: dart line\n"
+        "/* TODO: dart block */\n"
+        "/// TODO: dart doc\n"
+        'String s = "// not comment";\n'
+    )
+    findings = check(tmp_path, "app.dart", source)
+    assert [(f.text, f.line) for f in findings] == [
+        ("dart line", 1),
+        ("dart block", 2),
+        ("dart doc", 3),
+    ]
+
+
+def test_scala_comments(tmp_path) -> None:
+    source = (
+        '// TODO: scala line\n/* TODO: scala block */\nval s = "/* not comment */";\n'
+    )
+    findings = check(tmp_path, "App.scala", source)
+    assert [(f.text, f.line) for f in findings] == [
+        ("scala line", 1),
+        ("scala block", 2),
+    ]
+
+
+def test_elixir_comments(tmp_path) -> None:
+    source = '# TODO: elixir line\ns = "# not comment"\n# TODO: second line\n'
+    findings = check(tmp_path, "app.ex", source)
+    assert [(f.text, f.line) for f in findings] == [
+        ("elixir line", 1),
+        ("second line", 3),
+    ]

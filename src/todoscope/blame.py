@@ -44,6 +44,7 @@ class BlameInfo:
     author: str
     date: str
     committed_date: str
+    author_mail: str = ""
 
     @property
     def uncommitted(self) -> bool:
@@ -74,6 +75,7 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
             author=attrs.get("author", ""),
             date=attrs.get("date", ""),
             committed_date=attrs.get("committed_date", ""),
+            author_mail=attrs.get("author_mail", ""),
         )
         for line in range(current_start, current_start + current_count):
             result[line] = info
@@ -92,6 +94,8 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
             key, _, value = raw.partition(" ")
             if key == "author":
                 attrs["author"] = value
+            elif key == "author-mail":
+                attrs["author_mail"] = value.strip("<>")
             elif key == "author-time":
                 try:
                     stamp = datetime.fromtimestamp(int(value), tz=UTC)
@@ -182,4 +186,23 @@ def filter_by_age(
         if max_age is not None and days > max_age:
             continue
         kept.append(indexed)
+    return tuple(kept)
+
+
+def filter_by_author(
+    findings: tuple[IndexedFinding, ...],
+    blames: dict[str, dict[int, BlameInfo]],
+    author_query: str,
+) -> tuple[IndexedFinding, ...]:
+    """Keep findings whose commit author name or email matches ``author_query``."""
+    if not author_query:
+        return findings
+    query = author_query.lower()
+    kept: list[IndexedFinding] = []
+    for indexed in findings:
+        info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+        if info is None:
+            continue
+        if query in info.author.lower() or query in info.author_mail.lower():
+            kept.append(indexed)
     return tuple(kept)

@@ -7,6 +7,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import subprocess
 import sys
 import time
 from importlib.metadata import version
@@ -30,10 +31,17 @@ from todoscope.blame import (
     BlameTimeoutError,
     blame_for_file,
     filter_by_age,
+    filter_by_author,
 )
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files, staged_files
-from todoscope.config import Config, ConfigError, discover_project_root, load_config
+from todoscope.config import (
+    Config,
+    ConfigError,
+    apply_cli_overrides,
+    discover_project_root,
+    load_config,
+)
 from todoscope.diffstate import (
     diff_sets,
     finding_key,
@@ -152,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="keep only findings at most this many days old",
     )
     parser.add_argument(
+        "--author",
+        "-a",
+        metavar="PATTERN",
+        help="keep only findings authored by matching name or email",
+    )
+    parser.add_argument(
         "--changed",
         metavar="REF",
         help="scan only tracked files whose content differs from this git ref",
@@ -214,6 +228,32 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="exit with code 4 when more than N findings remain",
     )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        help="path to custom configuration file",
+    )
+    parser.add_argument(
+        "--marker",
+        action="append",
+        dest="markers",
+        metavar="MARKER",
+        help="override marker list (can be specified multiple times)",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        dest="excludes",
+        metavar="PATTERN",
+        help="path or glob pattern to exclude (can be specified multiple times)",
+    )
+    parser.add_argument(
+        "--extension",
+        action="append",
+        dest="extensions",
+        metavar="EXT",
+        help="override scanned extensions (can be specified multiple times)",
+    )
     return parser
 
 
@@ -259,17 +299,33 @@ exec todoscope . --staged --quiet --fail
 
 def _hook_path(root: Path) -> Path | None:
     git_dir = root / ".git"
-    if not git_dir.is_dir():
-        return None
-    return git_dir / "hooks" / "pre-commit"
+    if git_dir.is_dir():
+        return git_dir / "hooks" / "pre-commit"
+    if git_dir.is_file():
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "--git-path", "hooks"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5.0,
+            )
+            if completed.returncode == 0 and completed.stdout.strip():
+                hooks_dir = Path(completed.stdout.strip())
+                if not hooks_dir.is_absolute():
+                    hooks_dir = root / hooks_dir
+                return hooks_dir / "pre-commit"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
 
 
 def _install_hook(root: Path) -> int:
     hook = _hook_path(root)
     if hook is None:
         print(
-            "Error: --install-hook requires a regular Git repository "
-            "(worktrees are not supported).",
+            "Error: --install-hook requires a Git repository.",
             file=sys.stderr,
         )
         return 2
@@ -288,8 +344,7 @@ def _uninstall_hook(root: Path) -> int:
     hook = _hook_path(root)
     if hook is None:
         print(
-            "Error: --uninstall-hook requires a regular Git repository "
-            "(worktrees are not supported).",
+            "Error: --uninstall-hook requires a Git repository.",
             file=sys.stderr,
         )
         return 2
@@ -401,7 +456,16 @@ def main(
 
     root = discover_project_root(target)
     try:
-        config = load_config(root)
+        config_file = (
+            Path(os.path.abspath(args.config)) if args.config is not None else None
+        )
+        config = load_config(root, config_file=config_file)
+        config = apply_cli_overrides(
+            config,
+            markers=args.markers,
+            extensions=args.extensions,
+            exclude=args.excludes,
+        )
         symlink_target = target_has_symlink_component(target, root)
         spec = None if symlink_target else load_gitignore_spec(root)
     except ConfigError as exc:
@@ -494,13 +558,16 @@ def main(
         print("--quiet and --min-age cannot be used together.", file=sys.stderr)
     if args.quiet and args.max_age is not None:
         print("--quiet and --max-age cannot be used together.", file=sys.stderr)
+    if args.quiet and args.author is not None:
+        print("--quiet and --author cannot be used together.", file=sys.stderr)
     if args.quiet and args.check_secrets:
         print("--quiet and --check-secrets cannot be used together.", file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
     sort_by_age = args.sort == "age"
+    author_filtering = args.author is not None
     do_history = (
-        args.blame or args.age or age_filtering or sort_by_age
+        args.blame or args.age or age_filtering or sort_by_age or author_filtering
     ) and not args.quiet
     if do_history:
         option = (
@@ -508,6 +575,8 @@ def main(
             if args.blame
             else "--age"
             if args.age
+            else "--author"
+            if author_filtering
             else "--sort age"
             if sort_by_age
             else "--min-age"
@@ -562,6 +631,12 @@ def main(
             findings, blames, min_age=args.min_age, max_age=args.max_age
         )
         removed_by_age = len(findings) - len(filtered)
+        findings = filtered
+
+    removed_by_author = 0
+    if args.author is not None and blames is not None:
+        filtered = filter_by_author(findings, blames, args.author)
+        removed_by_author = len(findings) - len(filtered)
         findings = filtered
 
     secrets_found: SecretEntries | None = None
@@ -680,6 +755,7 @@ def main(
                 ai_payload_characters=ai_payload_chars,
                 serial_retried_chunks=stats.serial_retry_chunks,
                 age_filter_removed=removed_by_age if age_filtering else None,
+                author_filter_removed=(removed_by_author if author_filtering else None),
                 changed_files=(len(changed_set) if changed_set is not None else None),
                 ai_from_cache=(
                     ai_from_cache
@@ -763,6 +839,7 @@ def main(
                 if age_filtering
                 else None
             ),
+            author_filter=args.author,
             changed_ref=args.changed,
             staged=args.staged,
             ai_from_cache=ai_from_cache,

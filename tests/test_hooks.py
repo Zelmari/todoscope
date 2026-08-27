@@ -142,16 +142,22 @@ def test_uninstall_hook_without_install_reports_none(
     assert "No todoscope pre-commit hook is installed." in captured.out
 
 
-def test_install_hook_requires_regular_repo(tmp_path, monkeypatch, capsys) -> None:
+def test_install_hook_in_worktree(tmp_path, monkeypatch, capsys) -> None:
     repo = _make_repo(tmp_path)
-    (repo / ".git" / "config").unlink()
-    subprocess.run(["rm", "-rf", str(repo / ".git")], cwd=repo, check=False)
-    (repo / ".git").write_text("gitdir: /elsewhere/.git\n", encoding="utf-8")
-    monkeypatch.chdir(repo)
+    wt = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "-q", str(wt), "-b", "wt-branch"],
+        cwd=repo,
+        check=True,
+    )
+    monkeypatch.chdir(wt)
     result = main(["--install-hook"])
     captured = capsys.readouterr()
-    assert result == 2
-    assert "worktrees are not supported" in captured.err
+    assert result == 0
+    assert "Installed pre-commit hook" in captured.out
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    assert hook.exists()
+    assert HOOK_MARKER in hook.read_text(encoding="utf-8")
 
 
 def test_install_hook_outside_repo(tmp_path, monkeypatch, capsys) -> None:
@@ -159,7 +165,7 @@ def test_install_hook_outside_repo(tmp_path, monkeypatch, capsys) -> None:
     result = main(["--install-hook"])
     captured = capsys.readouterr()
     assert result == 2
-    assert "requires a regular Git repository" in captured.err
+    assert "requires a Git repository" in captured.err
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="hooks are POSIX shell scripts")

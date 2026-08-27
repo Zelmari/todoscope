@@ -144,7 +144,7 @@ def test_extensions_not_a_list_is_an_error(tmp_path) -> None:
 
 
 def test_unsupported_extension_is_an_error(tmp_path) -> None:
-    write(tmp_path / ".todoscope.json", '{"extensions": [".lua"]}')
+    write(tmp_path / ".todoscope.json", '{"extensions": [".unsupported"]}')
     with pytest.raises(ConfigError, match="no supported parser"):
         load_config(tmp_path)
 
@@ -200,3 +200,36 @@ def test_unknown_key_is_an_error(tmp_path) -> None:
 def test_parse_config_text_reports_filename(tmp_path) -> None:
     with pytest.raises(ConfigError, match=r"\.todoscope\.json contains invalid JSON"):
         parse_config_text("{", tmp_path / ".todoscope.json")
+
+
+def test_load_config_with_explicit_config_file(tmp_path) -> None:
+    custom = tmp_path / "custom.json"
+    write(custom, '{"markers": ["CUSTOM"]}')
+    config = load_config(tmp_path, config_file=custom)
+    assert config.markers == ("CUSTOM",)
+
+
+def test_load_config_with_missing_explicit_config_file(tmp_path) -> None:
+    custom = tmp_path / "missing.json"
+    with pytest.raises(ConfigError, match="does not exist"):
+        load_config(tmp_path, config_file=custom)
+
+
+def test_load_config_with_directory_config_file(tmp_path) -> None:
+    with pytest.raises(ConfigError, match="is a directory"):
+        load_config(tmp_path, config_file=tmp_path)
+
+
+def test_apply_cli_overrides(tmp_path) -> None:
+    from todoscope.config import apply_cli_overrides
+
+    base = load_config(tmp_path)
+    overridden = apply_cli_overrides(
+        base,
+        markers=["FIXME", "BUG"],
+        extensions=[".py", ".rs"],
+        exclude=["tests/", "build/"],
+    )
+    assert overridden.markers == ("FIXME", "BUG")
+    assert overridden.extensions == (".py", ".rs")
+    assert overridden.exclude == ("tests/", "build/")

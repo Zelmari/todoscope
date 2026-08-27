@@ -40,6 +40,14 @@ EXTENSION_LANGUAGES: dict[str, Language] = {
     ".swift": Language.SWIFT,
     ".sh": Language.SHELL,
     ".bash": Language.SHELL,
+    ".sql": Language.SQL,
+    ".lua": Language.LUA,
+    ".zig": Language.ZIG,
+    ".dart": Language.DART,
+    ".scala": Language.SCALA,
+    ".sc": Language.SCALA,
+    ".ex": Language.ELIXIR,
+    ".exs": Language.ELIXIR,
 }
 
 _MARKER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\Z")
@@ -183,8 +191,64 @@ def parse_config_text(text: str, path: Path) -> Config:
     )
 
 
-def load_config(project_root: Path) -> Config:
-    """Load configuration from the project root, or return defaults."""
+def apply_cli_overrides(
+    config: Config,
+    *,
+    markers: list[str] | None = None,
+    extensions: list[str] | None = None,
+    exclude: list[str] | None = None,
+) -> Config:
+    """Apply command-line overrides to an existing Config."""
+    new_markers = config.markers
+    if markers is not None:
+        flat_markers: list[str] = []
+        for m in markers:
+            for item in m.split(","):
+                flat_markers.append(item.strip())
+        new_markers = _validate_markers(flat_markers)
+
+    new_extensions = config.extensions
+    if extensions is not None:
+        flat_exts: list[str] = []
+        for e in extensions:
+            for item in e.split(","):
+                flat_exts.append(item.strip())
+        new_extensions = _validate_extensions(flat_exts)
+
+    new_exclude = config.exclude
+    if exclude is not None:
+        flat_exclude: list[str] = list(config.exclude)
+        for ex in exclude:
+            for item in ex.split(","):
+                flat_exclude.append(item.strip())
+        new_exclude = _validate_exclude(flat_exclude)
+
+    return Config(
+        path=config.path,
+        markers=new_markers,
+        extensions=new_extensions,
+        exclude=new_exclude,
+        model=config.model,
+        max_ai_characters=config.max_ai_characters,
+    )
+
+
+def load_config(
+    project_root: Path,
+    config_file: Path | None = None,
+) -> Config:
+    """Load configuration from config_file, project root, or defaults."""
+    if config_file is not None:
+        if not config_file.exists():
+            raise ConfigError(f"Configuration file {config_file} does not exist.")
+        if config_file.is_dir():
+            raise ConfigError(f"Configuration path is a directory: {config_file}")
+        try:
+            text = config_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ConfigError(f"Cannot read {config_file}: {exc}") from exc
+        return parse_config_text(text, config_file)
+
     config_path = project_root / CONFIG_FILENAME
     if not config_path.exists():
         return Config(path=None)

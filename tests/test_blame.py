@@ -398,3 +398,85 @@ def test_zero_paths_do_not_report_budget_exhaustion(
     captured = capsys.readouterr()
     assert result == 0
     assert "Blame budget exceeded" not in captured.err
+
+
+def test_filter_by_author(tmp_path) -> None:
+    from todoscope.blame import BlameInfo, filter_by_author
+    from todoscope.extraction import Finding
+    from todoscope.scan import IndexedFinding
+
+    f1 = IndexedFinding(1, Finding("TODO", "first", "a.py", 1))
+    f2 = IndexedFinding(2, Finding("TODO", "second", "b.py", 2))
+    blames = {
+        "a.py": {
+            1: BlameInfo(
+                "c1", "Alice Smith", "2025-01-01", "2025-01-01", "alice@example.com"
+            )
+        },
+        "b.py": {
+            2: BlameInfo(
+                "c2", "Bob Jones", "2025-01-01", "2025-01-01", "bob@example.com"
+            )
+        },
+    }
+    # Match name substring
+    assert filter_by_author((f1, f2), blames, "alice") == (f1,)
+    # Match email substring
+    assert filter_by_author((f1, f2), blames, "bob@") == (f2,)
+    # Case insensitive
+    assert filter_by_author((f1, f2), blames, "SMITH") == (f1,)
+    # No match
+    assert filter_by_author((f1, f2), blames, "Charlie") == ()
+
+
+def test_cli_author_filter(tmp_path, capsys) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "alice@example.com"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Alice"], cwd=repo, check=True)
+    (repo / "a.py").write_text("# TODO: by alice\n", encoding="utf-8")
+    subprocess.run(["git", "add", "a.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "alice commit"], cwd=repo, check=True)
+
+    subprocess.run(
+        ["git", "config", "user.email", "bob@example.com"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Bob"], cwd=repo, check=True)
+    (repo / "b.py").write_text("# TODO: by bob\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "bob commit"], cwd=repo, check=True)
+
+    # Filter by Alice
+    result = main([str(repo), "--author", "Alice"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: by alice" in captured.out
+    assert "TODO: by bob" not in captured.out
+
+    # Filter by Bob email
+    result = main([str(repo), "--author", "bob@example.com"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: by bob" in captured.out
+    assert "TODO: by alice" not in captured.out
+
+    # Filter with JSON format
+    result = main([str(repo), "--author", "Alice", "--format", "json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    data = json.loads(captured.out)
+    assert data["author_filter"] == "Alice"
+    assert data["findings_count"] == 1
+
+
+def test_cli_author_filter_conflicts_with_quiet(tmp_path, capsys) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    result = main([str(repo), "--author", "Alice", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "--quiet and --author cannot be used together." in captured.err

@@ -11,11 +11,11 @@ todoscope src/
 ## What it does
 
 - Scans Python, JavaScript, TypeScript, JSX/TSX, Rust, Java, Go, C, C++,
-  C#, PHP, Ruby, Kotlin, Swift, and Shell for comments that start with your
-  markers (`TODO` by default). The default enabled set is
-  `.py .js .jsx .ts .tsx .rs`; enable more extensions
-  (`.java .go .c .h .cpp .cc .cxx .hpp .cs .php .rb .kt .swift .sh .bash`)
-  through `extensions` in `.todoscope.json`.
+  C#, PHP, Ruby, Kotlin, Swift, Shell, SQL, Lua, Zig, Dart, Scala, and
+  Elixir for comments that start with your markers (`TODO` by default). The
+  default enabled set is `.py .js .jsx .ts .tsx .rs`; enable more extensions
+  (`.java .go .c .h .cpp .cc .cxx .hpp .cs .php .rb .kt .swift .sh .bash .sql .lua .zig .dart .scala .sc .ex .exs`)
+  through `extensions` in `.todoscope.json` or `--extension` on the CLI.
 - Only real comments count: `TODO` inside strings, template literals, JSX
   text, or raw strings is ignored.
 - Respects every `.gitignore` in the tree (root and nested, with git's
@@ -48,6 +48,7 @@ todoscope src/ --ai           # add AI interpretations and priorities
 todoscope src/ --ai --no-cache  # bypass the local AI result cache
 todoscope src/ --check-secrets  # list comments that look like credentials
 todoscope src/ --blame        # add who-authored-each-finding via git blame
+todoscope src/ --author Alice # keep only findings authored by matching name or email
 todoscope src/ --age          # add time since each finding was committed
 todoscope src/ --age --blame  # show both age and attribution
 todoscope src/ --min-age 90   # keep only findings at least 90 days old
@@ -58,6 +59,10 @@ todoscope src/ --diff         # report findings added since the last scan
 todoscope src/ --stats        # print only the scan summary line
 todoscope src/ --sort age     # order text findings by age (oldest first)
 todoscope src/ --group-by marker  # group text findings by marker or directory
+todoscope src/ --marker FIXME # override markers for a one-off scan
+todoscope src/ --exclude dist/ # exclude an additional path or glob pattern
+todoscope src/ --extension .go # override scanned file extensions
+todoscope src/ --config custom.json  # use an explicit configuration file
 todoscope --install-hook      # install a pre-commit hook that gates staged findings
 todoscope --uninstall-hook    # remove the hook installed by todoscope
 todoscope src/ --quiet        # one numbered finding per line, nothing else
@@ -152,8 +157,8 @@ todoscope --install-hook        # writes .git/hooks/pre-commit
 
 The hook runs `todoscope . --staged --quiet --fail` before every commit:
 any staged finding exits 4 and blocks the commit. `--uninstall-hook`
-removes it (refusing to touch a hook it did not install). Worktrees are not
-supported yet. The repository also ships a
+removes it (refusing to touch a hook it did not install). Git worktrees
+are fully supported. The repository also ships a
 [`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml), so projects using the
 pre-commit framework can add:
 

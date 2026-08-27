@@ -27,15 +27,21 @@ import tree_sitter_bash as _bash
 import tree_sitter_c as _c
 import tree_sitter_c_sharp as _c_sharp
 import tree_sitter_cpp as _cpp
+import tree_sitter_dart as _dart
+import tree_sitter_elixir as _elixir
 import tree_sitter_go as _go
 import tree_sitter_java as _java
 import tree_sitter_javascript as _javascript
 import tree_sitter_kotlin as _kotlin
+import tree_sitter_lua as _lua
 import tree_sitter_php as _php
 import tree_sitter_ruby as _ruby
 import tree_sitter_rust as _rust
+import tree_sitter_scala as _scala
+import tree_sitter_sql as _sql
 import tree_sitter_swift as _swift
 import tree_sitter_typescript as _typescript
+import tree_sitter_zig as _zig
 
 CommentKind = Literal["line", "block"]
 
@@ -56,6 +62,12 @@ class Language(Enum):
     KOTLIN = "kotlin"
     SWIFT = "swift"
     SHELL = "shell"
+    SQL = "sql"
+    LUA = "lua"
+    ZIG = "zig"
+    DART = "dart"
+    SCALA = "scala"
+    ELIXIR = "elixir"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +85,9 @@ _TREE_SITTER_COMMENT_TYPES = (
     "line_comment",
     "block_comment",
     "multiline_comment",
+    "marginalia",
+    "documentation_comment",
+    "doc_comment",
 )
 
 _LANGUAGE_FACTORIES = {
@@ -90,6 +105,12 @@ _LANGUAGE_FACTORIES = {
     Language.KOTLIN: _kotlin.language,
     Language.SWIFT: _swift.language,
     Language.SHELL: _bash.language,
+    Language.SQL: _sql.language,
+    Language.LUA: _lua.language,
+    Language.ZIG: _zig.language,
+    Language.DART: _dart.language,
+    Language.SCALA: _scala.language,
+    Language.ELIXIR: _elixir.language,
 }
 
 
@@ -140,9 +161,10 @@ def extract_tree_sitter_comments(source: str, language: Language) -> list[Commen
         if node.type in _TREE_SITTER_COMMENT_TYPES:
             text = _decode(node.text)
             text = _strip_trailing_newline(text)
+            is_block = text.startswith("/*") or text.startswith("--[")
             comments.append(
                 Comment(
-                    kind="block" if text.startswith("/*") else "line",
+                    kind="block" if is_block else "line",
                     text=text,
                     start_line=node.start_point.row + 1,
                     end_line=node.end_point.row + 1,

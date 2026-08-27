@@ -8,13 +8,20 @@ are combined into single findings.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from todoscope.config import EXTENSION_LANGUAGES
 from todoscope.parsing.comments import Comment, Language, extract_comments
 
-_HASH_DELIMITER_LANGUAGES = frozenset({Language.PYTHON, Language.RUBY, Language.SHELL})
+_HASH_DELIMITER_LANGUAGES = frozenset(
+    {Language.PYTHON, Language.RUBY, Language.SHELL, Language.ELIXIR}
+)
+_DASH_DELIMITER_LANGUAGES = frozenset({Language.LUA, Language.SQL})
+
+_LUA_BLOCK_OPEN = re.compile(r"^--\[=*\[")
+_LUA_BLOCK_CLOSE = re.compile(r"\]=*\]$")
 
 IGNORE_DIRECTIVE = "@ignore"
 
@@ -65,6 +72,8 @@ def normalise_line_comment(language: Language, raw: str) -> str:
                 text = text[1:]
     elif language in _HASH_DELIMITER_LANGUAGES:
         text = text.lstrip("#")
+    elif language in _DASH_DELIMITER_LANGUAGES:
+        text = text.lstrip("-")
     else:
         text = text.lstrip("/")
         if text.startswith("!"):
@@ -73,8 +82,12 @@ def normalise_line_comment(language: Language, raw: str) -> str:
 
 
 def normalise_block_comment(raw: str) -> str:
-    """Remove ``/* */`` delimiters and per-line ``*`` decoration."""
-    interior = raw[2:-2].strip() if raw.endswith("*/") else raw[2:].strip()
+    """Remove block delimiters and per-line ``*`` decoration."""
+    if raw.startswith("--["):
+        interior = _LUA_BLOCK_OPEN.sub("", raw)
+        interior = _LUA_BLOCK_CLOSE.sub("", interior).strip()
+    else:
+        interior = raw[2:-2].strip() if raw.endswith("*/") else raw[2:].strip()
     lines: list[str] = []
     for line in interior.splitlines():
         stripped = line.strip()

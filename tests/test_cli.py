@@ -591,3 +591,45 @@ def test_secondary_failure_keeps_local_report(
     assert result == 0
     assert "TODO: fix the thing" in captured.out
     assert "AI analysis skipped: the secondary AI request failed." in captured.out
+
+
+def test_cli_custom_config_file(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    custom = tmp_path / "custom.json"
+    custom.write_text('{"markers": ["CUSTOM"]}')
+    (tmp_path / "a.py").write_text("# CUSTOM: test\n\n# TODO: ignored\n")
+    result = main([str(tmp_path), "--config", str(custom)])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "CUSTOM: test" in captured.out
+    assert "TODO: ignored" not in captured.out
+
+
+def test_cli_marker_override(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.py").write_text("# FIXME: important\n\n# TODO: normal\n")
+    result = main([str(tmp_path), "--marker", "FIXME"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "FIXME: important" in captured.out
+    assert "TODO: normal" not in captured.out
+
+
+def test_cli_exclude_override(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.py").write_text("# TODO: keep\n")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "b.py").write_text("# TODO: skip\n")
+    result = main([str(tmp_path), "--exclude", "sub/"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: keep" in captured.out
+    assert "TODO: skip" not in captured.out
+
+
+def test_cli_extension_override(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "a.py").write_text("# TODO: python\n")
+    (tmp_path / "b.rs").write_text("// TODO: rust\n")
+    result = main([str(tmp_path), "--extension", ".rs"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: rust" in captured.out
+    assert "TODO: python" not in captured.out
