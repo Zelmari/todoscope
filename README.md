@@ -167,7 +167,7 @@ pre-commit framework can add:
 
 ```yaml
 - repo: https://github.com/Zelmari/todoscope
-  rev: v0.21.0
+  rev: v0.27.0
   hooks:
     - id: todoscope
 ```

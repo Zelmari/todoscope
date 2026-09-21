@@ -36,6 +36,13 @@ jobs:
         run: uv run ruff format --check .
       - name: Type check
         run: uv run pyright
+      - name: Require a version tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          case "${{ github.event.inputs.ref }}" in
+            v*) ;;
+            *) echo "workflow_dispatch ref must be a v* tag" >&2; exit 1 ;;
+          esac
       - name: Build
         run: uv build
       - name: Publish to PyPI
@@ -43,8 +50,9 @@ jobs:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: uv publish
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || startsWith(github.event.inputs.ref, 'v')
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ github.event.inputs.ref || github.ref_name }}
           files: dist/*
           generate_release_notes: true
