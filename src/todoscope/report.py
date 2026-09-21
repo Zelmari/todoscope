@@ -423,6 +423,7 @@ def json_report(
                 "unsupported": stats.unsupported,
                 "unreadable": stats.unreadable,
                 "symlinks": stats.symlinks,
+                "too_large": stats.too_large,
             },
             "ai": ai_section,
         }
@@ -518,6 +519,7 @@ def verbose_report(
         f"Unsupported files: {stats.unsupported}",
         f"Unreadable files: {stats.unreadable}",
         f"Symlinks skipped: {stats.symlinks}",
+        f"Files over the size cap: {stats.too_large}",
         f"Scan duration: {duration_seconds:.3f}s",
         f"Configured model: {model}",
         (

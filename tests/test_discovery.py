@@ -37,6 +37,22 @@ def test_single_file_input(tmp_path) -> None:
     assert result.stats.scanned == 1
 
 
+def test_uppercase_extension_is_scanned(tmp_path) -> None:
+    write(tmp_path / "A.PY", "# TODO: upper\n")
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert names(result, tmp_path) == ["A.PY"]
+
+
+def test_oversized_source_is_not_scanned(tmp_path) -> None:
+    from todoscope.config import MAX_SOURCE_BYTES
+
+    path = tmp_path / "big.py"
+    path.write_bytes(b"# TODO: huge\n" + b"x" * MAX_SOURCE_BYTES)
+    result = discover_files(tmp_path, tmp_path, load_config(tmp_path))
+    assert result.files == ()
+    assert result.stats.too_large == 1
+
+
 def test_single_unsupported_file_is_skipped(tmp_path) -> None:
     target = write(tmp_path / "notes.md")
     result = discover_files(target, tmp_path, load_config(tmp_path))

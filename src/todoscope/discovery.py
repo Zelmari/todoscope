@@ -18,7 +18,7 @@ from typing import Protocol
 
 import pathspec
 
-from todoscope.config import Config, ConfigError
+from todoscope.config import MAX_SOURCE_BYTES, Config, ConfigError, extension_selected
 
 GITIGNORE_SOURCE = "gitignore"
 CONFIG_SOURCE = "configuration"
@@ -47,6 +47,8 @@ class ScanStats:
     ignored_by_config: int = 0
     unreadable: int = 0
     symlinks: int = 0
+    too_large: int = 0
+    """Files skipped because they exceed the source size cap."""
     ignored_by_directive: int = 0
     """Findings suppressed by a standalone @ignore token."""
     serial_retry_chunks: int = 0
@@ -286,8 +288,15 @@ def filter_explicit_paths(
         if source == CONFIG_SOURCE:
             stats.ignored_by_config += 1
             continue
-        if path.suffix not in config.extensions:
+        if not extension_selected(path.suffix, config.extensions):
             stats.unsupported += 1
+            continue
+        try:
+            oversized = path.is_file() and path.stat().st_size > MAX_SOURCE_BYTES
+        except OSError:
+            oversized = False
+        if oversized:
+            stats.too_large += 1
             continue
         files.append(path)
     files.sort(
@@ -337,8 +346,15 @@ def discover_files(
         if source == CONFIG_SOURCE:
             stats.ignored_by_config += 1
             return
-        if path.suffix not in config.extensions:
+        if not extension_selected(path.suffix, config.extensions):
             stats.unsupported += 1
+            return
+        try:
+            oversized = path.stat().st_size > MAX_SOURCE_BYTES
+        except OSError:
+            oversized = False
+        if oversized:
+            stats.too_large += 1
             return
         if not os.access(path, os.R_OK):
             stats.unreadable += 1

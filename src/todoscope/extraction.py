@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from todoscope.config import EXTENSION_LANGUAGES
+from todoscope.config import language_for_suffix
 from todoscope.parsing.comments import Comment, Language, extract_comments
 
 _HASH_DELIMITER_LANGUAGES = frozenset(
@@ -184,7 +184,7 @@ def findings_for_source(
     markers: tuple[str, ...],
 ) -> list[Finding]:
     """Return findings for already-loaded source text."""
-    language = EXTENSION_LANGUAGES.get(path.suffix)
+    language = language_for_suffix(path.suffix)
     if language is None:
         return []
     rel_path = path.relative_to(project_root).as_posix()

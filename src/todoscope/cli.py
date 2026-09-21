@@ -39,6 +39,7 @@ from todoscope.blame import (
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files, read_index_blob, staged_files
 from todoscope.config import (
+    MAX_SOURCE_BYTES,
     Config,
     ConfigError,
     apply_cli_overrides,
@@ -589,9 +590,13 @@ def main(
             selected = _paths_under_target(changed_set, target, root)
             blobs: dict[str, str] = {}
             present: list[str] = []
+            oversized_blobs = 0
             for rel in selected:
                 text = read_index_blob(root, rel)
                 if text is None:
+                    continue
+                if len(text.encode("utf-8")) > MAX_SOURCE_BYTES:
+                    oversized_blobs += 1
                     continue
                 blobs[rel] = text
                 present.append(rel)
@@ -606,6 +611,7 @@ def main(
                 discovered.files, root, config, sources=blobs
             )
             discovered.stats.serial_retry_chunks = retried
+            discovered.stats.too_large += oversized_blobs
             stats = discovered.stats
         elif changed_set is not None and not args.diff:
             assert changed_set is not None
