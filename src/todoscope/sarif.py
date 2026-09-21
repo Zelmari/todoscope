@@ -16,6 +16,7 @@ from todoscope.blame import BlameInfo
 from todoscope.config import Config
 from todoscope.report import SecretEntries, age_entry
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -50,7 +51,7 @@ def _properties(
     if item is not None:
         props["priority"] = item.priority
     if blames is not None:
-        info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+        info = blames.get(indexed.finding.path, {}).get(indexed.finding.history_line)
         if info is not None and not info.uncommitted:
             props["blame"] = {
                 "author": info.author,
@@ -58,7 +59,7 @@ def _properties(
                 "commit": info.commit,
             }
     if ages is not None:
-        info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
+        info = ages.get(indexed.finding.path, {}).get(indexed.finding.history_line)
         props["age"] = age_entry(info)
     return props
 
@@ -84,9 +85,8 @@ def sarif_report(
             if item is not None
             else DEFAULT_LEVEL
         )
-        message = (
-            f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-        )
+        body = redact_secrets(finding.text)
+        message = f"{finding.marker}: {body}" if body else finding.marker
         results.append(
             {
                 "ruleId": finding.marker,
@@ -96,7 +96,10 @@ def sarif_report(
                     {
                         "physicalLocation": {
                             "artifactLocation": {"uri": finding.path},
-                            "region": {"startLine": finding.line},
+                            "region": {
+                                "startLine": finding.line,
+                                "endLine": finding.span_end,
+                            },
                         }
                     }
                 ],
@@ -116,9 +119,8 @@ def sarif_report(
         )
         for indexed, matched in secret_entries:
             finding = indexed.finding
-            message = (
-                f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-            )
+            body = redact_secrets(finding.text)
+            message = f"{finding.marker}: {body}" if body else finding.marker
             results.append(
                 {
                     "ruleId": SECRET_RULE_ID,
@@ -128,7 +130,10 @@ def sarif_report(
                         {
                             "physicalLocation": {
                                 "artifactLocation": {"uri": finding.path},
-                                "region": {"startLine": finding.line},
+                                "region": {
+                                    "startLine": finding.line,
+                                    "endLine": finding.span_end,
+                                },
                             }
                         }
                     ],

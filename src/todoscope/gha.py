@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from todoscope.ai import AnalysisResult
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 _PRIORITY_COMMANDS: dict[str, str] = {
     "High": "error",
@@ -22,6 +23,11 @@ DEFAULT_COMMAND = "warning"
 
 def _escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _escape_property(value: str) -> str:
+    """Escape workflow-command property delimiters as well as message bytes."""
+    return _escape(value).replace(":", "%3A").replace(",", "%2C")
 
 
 def gha_report(
@@ -39,12 +45,11 @@ def gha_report(
             if item is not None
             else DEFAULT_COMMAND
         )
-        message = (
-            f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-        )
+        body = redact_secrets(finding.text)
+        message = f"{finding.marker}: {body}" if body else finding.marker
         lines.append(
-            f"::{command} file={_escape(finding.path)},line={finding.line},"
-            f"endLine={finding.line},title={_escape(finding.marker)}::"
+            f"::{command} file={_escape_property(finding.path)},line={finding.line},"
+            f"endLine={finding.span_end},title={_escape_property(finding.marker)}::"
             f"{_escape(message)}"
         )
     return "\n".join(lines)

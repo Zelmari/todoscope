@@ -47,7 +47,7 @@ def test_results_carry_location_and_message(tmp_path) -> None:
     assert results[0]["message"] == {"text": "TODO: one"}
     location = results[0]["locations"][0]["physicalLocation"]
     assert location["artifactLocation"] == {"uri": "a.py"}
-    assert location["region"] == {"startLine": 3}
+    assert location["region"] == {"startLine": 3, "endLine": 3}
     assert results[1]["ruleId"] == "FIXME"
 
 

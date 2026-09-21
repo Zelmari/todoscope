@@ -50,15 +50,32 @@ def test_changed_files_unknown_ref_raises(tmp_path) -> None:
         changed_files(repo, "no-such-ref")
 
 
-def test_changed_files_timeout_is_wrapped(tmp_path, monkeypatch) -> None:
+def test_changed_files_keeps_unusual_path_bytes(tmp_path) -> None:
+    repo = _make_repo(tmp_path)
+    name = "caf\u00e9.py"
+    (repo / name).write_text("# TODO: cafe\n", encoding="utf-8")
+    subprocess.run(["git", "add", "--", name], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "cafe"], cwd=repo, check=True)
+    (repo / name).write_text("# TODO: cafe changed\n", encoding="utf-8")
+    assert name in changed_files(repo, "HEAD")
+
+
+def test_changed_option_like_ref_is_not_a_diff_option(tmp_path) -> None:
+    repo = _make_repo(tmp_path)
+    with pytest.raises(ChangedError, match="unknown ref"):
+        changed_files(repo, "--output=/tmp/todoscope-not-a-diff")
+
+
+def test_changed_files_timeout_is_not_an_unknown_ref(tmp_path, monkeypatch) -> None:
     repo = _make_repo(tmp_path)
 
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired("git", 1.0)
 
     monkeypatch.setattr("todoscope.changed.subprocess.run", timeout)
-    with pytest.raises(ChangedError, match="timed out"):
+    with pytest.raises(ChangedError, match="timed out") as exc:
         changed_files(repo, "HEAD")
+    assert "unknown ref" not in str(exc.value)
 
 
 def test_discover_files_intersects_with_changed_set(tmp_path) -> None:
@@ -105,6 +122,18 @@ def test_cli_changed_json_reports_ref(tmp_path, capsys) -> None:
     assert data["changed_ref"] == "HEAD"
     assert data["files_scanned"] == 1
     assert data["findings"][0]["path"] == "b.py"
+
+
+def test_changed_diff_keeps_the_full_baseline(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    main([str(repo), "--diff"])
+    capsys.readouterr()
+    main([str(repo), "--changed", "HEAD", "--diff"])
+    capsys.readouterr()
+    result = main([str(repo), "--diff"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No new findings." in captured.out
 
 
 def test_cli_changed_composes_with_age(tmp_path, capsys) -> None:

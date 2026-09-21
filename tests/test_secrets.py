@@ -162,11 +162,12 @@ def test_check_secrets_without_flag_shows_nothing(tmp_path, capsys) -> None:
 
 def test_check_secrets_quiet_conflict(tmp_path, capsys) -> None:
     _write_clean_project(tmp_path)
-    result = main([str(tmp_path / "src"), "--quiet", "--check-secrets"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(tmp_path / "src"), "--quiet", "--check-secrets"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --check-secrets cannot be used together." in captured.err
-    assert "Possible credentials" not in captured.out
+    assert captured.out == ""
 
 
 def test_check_secrets_json_shape(tmp_path, capsys) -> None:
@@ -178,6 +179,8 @@ def test_check_secrets_json_shape(tmp_path, capsys) -> None:
     assert [entry["line"] for entry in data["secrets"]] == [2, 3]
     assert data["secrets"][0]["rules"] == ["openai-style-api-key"]
     assert data["secrets"][1]["rules"] == ["aws-access-key-id"]
+    assert "sk-" not in data["secrets"][0]["text"]
+    assert "[redacted]" in data["secrets"][0]["text"]
 
 
 def test_check_secrets_json_null_without_flag(tmp_path, capsys) -> None:
@@ -202,6 +205,8 @@ def test_check_secrets_sarif_emits_error_results(tmp_path, capsys) -> None:
     ]
     assert [r["level"] for r in secret_results] == ["error", "error"]
     assert secret_results[0]["properties"]["rules"] == ["openai-style-api-key"]
+    assert "sk-" not in secret_results[0]["message"]["text"]
+    assert "[redacted]" in secret_results[0]["message"]["text"]
 
 
 def test_check_secrets_ai_is_still_refused(tmp_path, monkeypatch, capsys) -> None:

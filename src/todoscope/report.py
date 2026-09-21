@@ -12,6 +12,7 @@ from todoscope.blame import BlameInfo, age_days
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 AI_SKIPPED_NO_KEY = "AI analysis skipped: no API key was configured."
 AI_SKIPPED_NO_MODEL = "AI analysis skipped: no model was configured."
@@ -153,12 +154,14 @@ def order_findings(
 
         def age_key(f: IndexedFinding) -> tuple[bool, int, str, int]:
             info = (
-                blames.get(f.finding.path, {}).get(f.finding.line)
+                blames.get(f.finding.path, {}).get(f.finding.history_line)
                 if blames is not None
                 else None
             )
             days = age_days(info)
-            return (days is None, days or 0, f.finding.path.casefold(), f.finding.line)
+            # Unavailable last. Known ages are oldest first (larger day counts).
+            rank = 0 if days is None else -days
+            return (days is None, rank, f.finding.path.casefold(), f.finding.line)
 
         return tuple(sorted(findings, key=age_key))
     if sort == "priority":
@@ -243,10 +246,10 @@ def _finding_block(
     block = [_finding_line(indexed)]
     if blames is not None:
         file_blames = blames.get(indexed.finding.path, {})
-        block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
+        block.append(blame_detail_line(file_blames.get(indexed.finding.history_line)))
     if ages is not None:
         file_ages = ages.get(indexed.finding.path, {})
-        block.append(age_detail_line(file_ages.get(indexed.finding.line)))
+        block.append(age_detail_line(file_ages.get(indexed.finding.history_line)))
     item = ai_by_id.get(indexed.id)
     if item is not None:
         block.append(_ai_detail_line(item))
@@ -268,6 +271,7 @@ def standard_report(
     diff_removed: int = 0,
     sort: str = "line",
     group_by: str = "none",
+    sort_blames: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -283,7 +287,12 @@ def standard_report(
 
     lines.append("")
     ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
-    ordered = order_findings(findings, sort, blames=blames, ai_by_id=ai_by_id)
+    ordered = order_findings(
+        findings,
+        sort,
+        blames=sort_blames if sort == "age" else blames,
+        ai_by_id=ai_by_id,
+    )
     if group_by == "none":
         lines.append(marker_label(config))
         lines.append("")
@@ -378,12 +387,14 @@ def json_report(
         entry: dict[str, Any] = {
             "id": indexed.id,
             "marker": indexed.finding.marker,
-            "text": indexed.finding.text,
+            "text": redact_secrets(indexed.finding.text),
             "path": indexed.finding.path,
             "line": indexed.finding.line,
         }
         if blames is not None:
-            info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+            info = blames.get(indexed.finding.path, {}).get(
+                indexed.finding.history_line
+            )
             entry["blame"] = (
                 {
                     "author": info.author,
@@ -394,7 +405,7 @@ def json_report(
                 else None
             )
         if ages is not None:
-            info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
+            info = ages.get(indexed.finding.path, {}).get(indexed.finding.history_line)
             entry["age"] = age_entry(info)
         return entry
 
@@ -415,6 +426,7 @@ def json_report(
                 "unsupported": stats.unsupported,
                 "unreadable": stats.unreadable,
                 "symlinks": stats.symlinks,
+                "too_large": stats.too_large,
             },
             "ai": ai_section,
         }
@@ -437,7 +449,7 @@ def _secret_json(entries: SecretEntries) -> list[dict[str, Any]]:
         {
             "id": indexed.id,
             "marker": indexed.finding.marker,
-            "text": indexed.finding.text,
+            "text": redact_secrets(indexed.finding.text),
             "path": indexed.finding.path,
             "line": indexed.finding.line,
             "rules": list(rules),
@@ -455,7 +467,7 @@ def _diff_json(
             {
                 "id": indexed.id,
                 "marker": indexed.finding.marker,
-                "text": indexed.finding.text,
+                "text": redact_secrets(indexed.finding.text),
                 "path": indexed.finding.path,
                 "line": indexed.finding.line,
             }
@@ -510,6 +522,7 @@ def verbose_report(
         f"Unsupported files: {stats.unsupported}",
         f"Unreadable files: {stats.unreadable}",
         f"Symlinks skipped: {stats.symlinks}",
+        f"Files over the size cap: {stats.too_large}",
         f"Scan duration: {duration_seconds:.3f}s",
         f"Configured model: {model}",
         (

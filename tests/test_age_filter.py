@@ -7,6 +7,8 @@ import os
 import subprocess
 from datetime import date
 
+import pytest
+
 from todoscope.blame import BlameInfo, age_days, filter_by_age
 from todoscope.cli import main
 from todoscope.extraction import Finding
@@ -80,11 +82,12 @@ def test_filter_requires_git_repo(tmp_path, capsys) -> None:
 
 def test_quiet_min_age_conflict(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
-    result = main([str(repo), "--quiet", "--min-age", "30"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--quiet", "--min-age", "30"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --min-age cannot be used together." in captured.err
-    assert "a.py:1" in captured.out
+    assert captured.out == ""
 
 
 def test_negative_age_is_rejected(tmp_path, capsys) -> None:
@@ -92,6 +95,16 @@ def test_negative_age_is_rejected(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert result == 2
     assert "--min-age must be a non-negative number of days" in captured.err
+
+
+def test_cli_max_age_zero_includes_untracked_files(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "new.py").write_text("# TODO: brand new\n", encoding="utf-8")
+    result = main([str(repo), "--max-age", "0"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "new.py:1: TODO: brand new" in captured.out
+    assert "TODO: old" not in captured.out
 
 
 def test_cli_max_age_zero_keeps_only_uncommitted(tmp_path, capsys) -> None:

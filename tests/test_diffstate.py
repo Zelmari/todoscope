@@ -7,7 +7,7 @@ import json
 from todoscope.cli import main
 from todoscope.diffstate import (
     diff_sets,
-    finding_key,
+    finding_identities,
     finding_keys,
     load_state,
     project_key,
@@ -25,10 +25,14 @@ def _indexed() -> tuple[IndexedFinding, ...]:
     )
 
 
-def test_finding_keys_are_sorted_and_stable() -> None:
+def test_finding_keys_ignore_line_shifts() -> None:
     keys = finding_keys(_indexed())
-    assert keys == ("a.py:1:TODO:one", "b.py:2:TODO:two")
-    assert finding_key(_indexed()[0]) == "a.py:1:TODO:one"
+    moved = (
+        IndexedFinding(id=1, finding=Finding("TODO", "one", "a.py", 40)),
+        IndexedFinding(id=2, finding=Finding("TODO", "two", "b.py", 90)),
+    )
+    assert finding_keys(moved) == keys
+    assert finding_identities(_indexed())[1].endswith("\x1f1")
 
 
 def test_diff_sets_new_and_removed() -> None:
@@ -67,6 +71,18 @@ def test_first_diff_run_reports_all_new(tmp_path, capsys) -> None:
     assert result == 0
     assert "New since last scan" in captured.out
     assert "1. a.py:1: TODO: one" in captured.out
+
+
+def test_line_shift_is_not_a_new_finding(tmp_path, capsys) -> None:
+    _write_project(tmp_path, ["# TODO: one\n"])
+    main([str(tmp_path / "src"), "--diff"])
+    capsys.readouterr()
+    _write_project(tmp_path, ["print(1)\n", "# TODO: one\n"])
+    result = main([str(tmp_path / "src"), "--diff"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No new findings." in captured.out
+    assert "disappeared" not in captured.out
 
 
 def test_second_diff_run_reports_nothing_new(tmp_path, capsys) -> None:

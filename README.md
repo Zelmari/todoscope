@@ -113,16 +113,19 @@ are not). Ignore and extension rules still apply, and the option composes
 with `--blame`, `--age`, and the age filters. JSON reports include a
 `changed_ref` field. Requires a valid git ref and a Git repository; unknown
 refs fail with exit code 2. `--staged` does the same for files staged for
-commit (JSON reports set `"staged": true`), and cannot be combined with
-`--changed`.
+commit, reading the index blob rather than the working tree (JSON reports
+set `"staged": true`), and cannot be combined with `--changed`. Staged
+deletions are skipped.
 
 `--diff` reports findings added since the last `--diff` scan: a
 `New since last scan` section in text mode (with the number of findings
 that disappeared), the new findings' lines only in `--quiet` mode, and a
 `diff` object in JSON. The baseline lives in the user cache directory
-keyed by project root, always covers the complete scan (age filters and
-`--changed` do not affect it), and is best-effort — a missing or corrupt
-baseline simply reports everything as new.
+keyed by project root, always covers the complete scan (age filters,
+`--changed`, and `--staged` do not affect it), and is best-effort — a
+missing or corrupt baseline simply reports everything as new. A finding's
+identity is its path, marker, text, and occurrence in that file, so
+inserting a line above a comment does not mark it as new.
 
 ### Ignoring findings
 
@@ -164,7 +167,7 @@ pre-commit framework can add:
 
 ```yaml
 - repo: https://github.com/Zelmari/todoscope
-  rev: v0.21.0
+  rev: v0.27.0
   hooks:
     - id: todoscope
 ```

@@ -6,6 +6,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from todoscope.parsing.comments import Language
@@ -21,7 +22,7 @@ DEFAULT_EXTENSIONS: tuple[str, ...] = (".py", ".js", ".jsx", ".ts", ".tsx", ".rs
 EXTENSION_LANGUAGES: dict[str, Language] = {
     ".py": Language.PYTHON,
     ".js": Language.JAVASCRIPT,
-    ".jsx": Language.JAVASCRIPT,
+    ".jsx": Language.TSX,
     ".ts": Language.TYPESCRIPT,
     ".tsx": Language.TSX,
     ".rs": Language.RUST,
@@ -51,6 +52,24 @@ EXTENSION_LANGUAGES: dict[str, Language] = {
 }
 
 _MARKER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\Z")
+
+MAX_SOURCE_BYTES = 10 * 1024 * 1024
+"""Files larger than this are skipped. They are not source we can usefully parse."""
+
+
+@lru_cache(maxsize=128)
+def _folded_extensions(extensions: tuple[str, ...]) -> frozenset[str]:
+    return frozenset(item.casefold() for item in extensions)
+
+
+def extension_selected(suffix: str, extensions: tuple[str, ...]) -> bool:
+    """True when ``suffix`` is one of the configured extensions, ignoring case."""
+    return suffix.casefold() in _folded_extensions(extensions)
+
+
+def language_for_suffix(suffix: str) -> Language | None:
+    """Parser for a file suffix. ``.PY`` and ``.py`` select the same language."""
+    return EXTENSION_LANGUAGES.get(suffix.casefold())
 
 
 class ConfigError(Exception):

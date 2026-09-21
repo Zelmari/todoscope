@@ -18,7 +18,7 @@ from typing import Protocol
 
 import pathspec
 
-from todoscope.config import Config, ConfigError
+from todoscope.config import MAX_SOURCE_BYTES, Config, ConfigError, extension_selected
 
 GITIGNORE_SOURCE = "gitignore"
 CONFIG_SOURCE = "configuration"
@@ -47,6 +47,8 @@ class ScanStats:
     ignored_by_config: int = 0
     unreadable: int = 0
     symlinks: int = 0
+    too_large: int = 0
+    """Files skipped because they exceed the source size cap."""
     ignored_by_directive: int = 0
     """Findings suppressed by a standalone @ignore token."""
     serial_retry_chunks: int = 0
@@ -148,6 +150,32 @@ def _matching_include_keys(
     return frozenset(keys)
 
 
+def _ignored_compiled(
+    chain: tuple[IgnoreSource, ...], path: Path, is_dir: bool
+) -> bool | None:
+    """Last-match gitignore result via pathspec's compiled backend.
+
+    Returns None when that backend cannot be used, so the caller falls back
+    to the pattern walk. A child spec that matches nothing must not clear a
+    parent ignore, which is why the match index (not the boolean) matters.
+    """
+    try:
+        from pathspec.util import normalize_file
+    except ImportError:
+        return None
+    ignored = False
+    try:
+        for source in chain:
+            rel = path.relative_to(source.base).as_posix()
+            probe = rel + "/" if is_dir else rel
+            include, index = source.spec._backend.match_file(normalize_file(probe))
+            if index is not None:
+                ignored = bool(include)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return ignored
+
+
 def _is_ignored(
     chain: tuple[IgnoreSource, ...],
     path: Path,
@@ -155,6 +183,10 @@ def _is_ignored(
     override: Override | None,
 ) -> bool:
     """Git algorithm: deeper sources override; last match within a source wins."""
+    if override is None or not override.gitignore_keys:
+        compiled = _ignored_compiled(chain, path, is_dir)
+        if compiled is not None:
+            return compiled
     ignored = False
     for source in chain:
         rel = path.relative_to(source.base).as_posix()
@@ -254,6 +286,59 @@ def _blocking_source(
     return None
 
 
+def filter_explicit_paths(
+    relative_paths: tuple[str, ...],
+    project_root: Path,
+    config: Config,
+    *,
+    spec: pathspec.PathSpec | None = None,
+    override: Override | None = None,
+) -> DiscoveryResult:
+    """Apply ignore and extension rules to an explicit path list.
+
+    Used for ``--staged`` and ``--changed``, which already know the paths
+    and should not walk the rest of the tree. Paths do not have to exist
+    on disk (a staged blob can outlive its worktree file).
+    """
+    files: list[Path] = []
+    stats = ScanStats()
+    if spec is None:
+        spec = load_gitignore_spec(project_root)
+    spec_cache: dict[Path, pathspec.PathSpec | None] = {}
+    for rel in relative_paths:
+        path = project_root / rel
+        parent = path.parent
+        if not parent.is_relative_to(project_root):
+            parent = project_root
+        chain = _chain_for(project_root, parent, spec, spec_cache)
+        source = _blocking_source(rel, chain, path, False, config, override)
+        if source == GITIGNORE_SOURCE:
+            stats.ignored_by_gitignore += 1
+            continue
+        if source == CONFIG_SOURCE:
+            stats.ignored_by_config += 1
+            continue
+        if not extension_selected(path.suffix, config.extensions):
+            stats.unsupported += 1
+            continue
+        try:
+            oversized = path.is_file() and path.stat().st_size > MAX_SOURCE_BYTES
+        except OSError:
+            oversized = False
+        if oversized:
+            stats.too_large += 1
+            continue
+        files.append(path)
+    files.sort(
+        key=lambda p: (
+            relative_posix(p, project_root).casefold(),
+            relative_posix(p, project_root),
+        )
+    )
+    stats.scanned = len(files)
+    return DiscoveryResult(files=tuple(files), stats=stats)
+
+
 def discover_files(
     target: Path,
     project_root: Path,
@@ -291,8 +376,15 @@ def discover_files(
         if source == CONFIG_SOURCE:
             stats.ignored_by_config += 1
             return
-        if path.suffix not in config.extensions:
+        if not extension_selected(path.suffix, config.extensions):
             stats.unsupported += 1
+            return
+        try:
+            oversized = path.stat().st_size > MAX_SOURCE_BYTES
+        except OSError:
+            oversized = False
+        if oversized:
+            stats.too_large += 1
             return
         if not os.access(path, os.R_OK):
             stats.unreadable += 1

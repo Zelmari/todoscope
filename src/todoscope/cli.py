@@ -6,10 +6,12 @@ import argparse
 import json
 import multiprocessing
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from importlib.metadata import version
 from pathlib import Path
 
@@ -26,16 +28,20 @@ from todoscope.ai import (
 from todoscope.blame import (
     BLAME_TIMEOUT_SECONDS,
     BLAME_TOTAL_BUDGET_SECONDS,
+    BLAME_WORKERS,
+    UNTRACKED,
     BlameError,
     BlameInfo,
     BlameTimeoutError,
     blame_for_file,
     filter_by_age,
     filter_by_author,
+    untracked_paths,
 )
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
-from todoscope.changed import ChangedError, changed_files, staged_files
+from todoscope.changed import ChangedError, changed_files, read_index_blob, staged_files
 from todoscope.config import (
+    MAX_SOURCE_BYTES,
     Config,
     ConfigError,
     apply_cli_overrides,
@@ -44,8 +50,7 @@ from todoscope.config import (
 )
 from todoscope.diffstate import (
     diff_sets,
-    finding_key,
-    finding_keys,
+    finding_identities,
     load_state,
     previous_keys,
     prune_state,
@@ -58,6 +63,7 @@ from todoscope.discovery import (
     ConfirmFn,
     build_override,
     check_ignored,
+    filter_explicit_paths,
     load_gitignore_spec,
     target_has_symlink_component,
 )
@@ -89,7 +95,7 @@ from todoscope.report import (
     verbose_report,
 )
 from todoscope.sarif import sarif_report
-from todoscope.scan import IndexedFinding, scan
+from todoscope.scan import IndexedFinding, scan, scan_files
 from todoscope.secrets import findings_with_secrets, secret_entries
 from todoscope.status import StatusContext
 
@@ -257,6 +263,64 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _blame_paths(
+    root: Path,
+    targets: list[str],
+    finding_lines: dict[str, set[int]],
+    blames: dict[str, dict[int, BlameInfo]],
+    blame_started: float,
+) -> bool:
+    """Blame several files concurrently. True when the time budget ran out."""
+    exceeded = False
+    deadline = blame_started + BLAME_TOTAL_BUDGET_SECONDS
+    futures: dict[Future[dict[int, BlameInfo]], tuple[str, bool]] = {}
+    with ThreadPoolExecutor(max_workers=BLAME_WORKERS) as pool:
+        for rel_path in targets:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                exceeded = True
+                break
+            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
+            future = pool.submit(
+                blame_for_file,
+                root / rel_path,
+                timeout=timeout,
+                repo_root=root,
+                lines=sorted(finding_lines[rel_path]),
+            )
+            futures[future] = (rel_path, budget_limited)
+        for future in as_completed(futures):
+            rel_path, budget_limited = futures[future]
+            try:
+                blames[rel_path] = future.result()
+            except BlameTimeoutError:
+                if budget_limited:
+                    exceeded = True
+            except BlameError:
+                pass
+    return exceeded
+
+
+def _paths_under_target(paths: set[str], target: Path, root: Path) -> tuple[str, ...]:
+    """Keep repository-relative paths that lie inside the requested target."""
+    try:
+        relative = target.relative_to(root).as_posix()
+    except ValueError:
+        return ()
+    if relative in {"", "."}:
+        return tuple(sorted(paths))
+    if target.is_file():
+        return (relative,) if relative in paths else ()
+    return tuple(
+        sorted(
+            path
+            for path in paths
+            if path == relative or path.startswith(relative + "/")
+        )
+    )
+
+
 def _rule_description(source: str) -> str:
     if source == GITIGNORE_SOURCE:
         return "is ignored by .gitignore."
@@ -291,34 +355,41 @@ def _prompt_secondary() -> bool:
 
 
 HOOK_MARKER = "# installed by todoscope"
-HOOK_SCRIPT = f"""#!/bin/sh
-{HOOK_MARKER}
-exec todoscope . --staged --quiet --fail
-"""
+
+
+def _hook_script() -> str:
+    """Hook body. The executable path is absolute so GUI git can find it."""
+    executable = shutil.which("todoscope") or "todoscope"
+    return (
+        "#!/bin/sh\n"
+        f"{HOOK_MARKER}\n"
+        f"exec {shlex.quote(executable)} . --staged --quiet --fail\n"
+    )
 
 
 def _hook_path(root: Path) -> Path | None:
-    git_dir = root / ".git"
-    if git_dir.is_dir():
-        return git_dir / "hooks" / "pre-commit"
-    if git_dir.is_file():
-        try:
-            completed = subprocess.run(
-                ["git", "rev-parse", "--git-path", "hooks"],
-                cwd=root,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=5.0,
-            )
-            if completed.returncode == 0 and completed.stdout.strip():
-                hooks_dir = Path(completed.stdout.strip())
-                if not hooks_dir.is_absolute():
-                    hooks_dir = root / hooks_dir
-                return hooks_dir / "pre-commit"
-        except (OSError, subprocess.SubprocessError):
-            pass
-    return None
+    """Pre-commit path, including ``core.hooksPath`` and linked worktrees."""
+    if not (root / ".git").exists():
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
+            check=False,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    hooks_dir = Path(completed.stdout.strip())
+    if not hooks_dir.is_absolute():
+        hooks_dir = root / hooks_dir
+    return hooks_dir / "pre-commit"
 
 
 def _install_hook(root: Path) -> int:
@@ -329,9 +400,22 @@ def _install_hook(root: Path) -> int:
             file=sys.stderr,
         )
         return 2
+    if hook.exists():
+        try:
+            existing = hook.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"Error: cannot read {hook}: {exc}", file=sys.stderr)
+            return 1
+        if HOOK_MARKER not in existing:
+            print(
+                f"Error: {hook} already exists and was not installed by "
+                "todoscope; refusing to overwrite it.",
+                file=sys.stderr,
+            )
+            return 2
     try:
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(HOOK_SCRIPT, encoding="utf-8")
+        hook.write_text(_hook_script(), encoding="utf-8")
         hook.chmod(0o755)
     except OSError as exc:
         print(f"Error: could not write the pre-commit hook: {exc}", file=sys.stderr)
@@ -440,6 +524,18 @@ def main(
         parser.error("--stats and --quiet cannot be used together.")
     if args.quiet and args.group_by != "none":
         parser.error("--group-by cannot be used with --quiet.")
+    if args.quiet and args.blame:
+        parser.error("--quiet and --blame cannot be used together.")
+    if args.quiet and args.age:
+        parser.error("--quiet and --age cannot be used together.")
+    if args.quiet and args.min_age is not None:
+        parser.error("--quiet and --min-age cannot be used together.")
+    if args.quiet and args.max_age is not None:
+        parser.error("--quiet and --max-age cannot be used together.")
+    if args.quiet and args.author is not None:
+        parser.error("--quiet and --author cannot be used together.")
+    if args.quiet and args.check_secrets:
+        parser.error("--quiet and --check-secrets cannot be used together.")
 
     for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
         if value is not None and value < 0:
@@ -524,16 +620,68 @@ def main(
             print(f"Error: {option} failed: {exc}", file=sys.stderr)
             return 2
 
+    if symlink_target:
+        print(
+            f"Skipped '{args.path}': the path contains a symlink.",
+            file=sys.stderr,
+        )
+
     started = time.perf_counter()
     try:
-        findings, stats = scan(
-            target,
-            root,
-            config,
-            spec=spec,
-            override=override,
-            changed=changed_set,
-        )
+        if args.staged:
+            assert changed_set is not None
+            selected = _paths_under_target(changed_set, target, root)
+            blobs: dict[str, str] = {}
+            present: list[str] = []
+            oversized_blobs = 0
+            for rel in selected:
+                text = read_index_blob(root, rel)
+                if text is None:
+                    continue
+                if len(text.encode("utf-8")) > MAX_SOURCE_BYTES:
+                    oversized_blobs += 1
+                    continue
+                blobs[rel] = text
+                present.append(rel)
+            discovered = filter_explicit_paths(
+                tuple(present),
+                root,
+                config,
+                spec=spec,
+                override=override,
+            )
+            findings, retried = scan_files(
+                discovered.files, root, config, sources=blobs
+            )
+            discovered.stats.serial_retry_chunks = retried
+            discovered.stats.too_large += oversized_blobs
+            stats = discovered.stats
+        elif changed_set is not None and not args.diff:
+            assert changed_set is not None
+            selected = _paths_under_target(changed_set, target, root)
+            changed_present = tuple(
+                rel
+                for rel in selected
+                if (root / rel).is_file() and not (root / rel).is_symlink()
+            )
+            discovered = filter_explicit_paths(
+                changed_present,
+                root,
+                config,
+                spec=spec,
+                override=override,
+            )
+            findings, retried = scan_files(discovered.files, root, config)
+            discovered.stats.serial_retry_chunks = retried
+            stats = discovered.stats
+        else:
+            findings, stats = scan(
+                target,
+                root,
+                config,
+                spec=spec,
+                override=override,
+            )
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 3
@@ -547,28 +695,49 @@ def main(
     )
     stats.ignored_by_directive = len(all_findings) - len(findings)
     baseline_findings = findings
+    if args.diff and args.staged:
+        full_findings, _full_stats = scan(
+            target,
+            root,
+            config,
+            spec=spec,
+            override=override,
+        )
+        baseline_findings = tuple(
+            indexed
+            for indexed in full_findings
+            if not suppressed_by_directive(indexed.finding.text)
+        )
+    elif args.diff and changed_set is not None:
+        baseline_findings = findings
+        narrowed = filter_explicit_paths(
+            tuple(
+                rel
+                for rel in _paths_under_target(changed_set, target, root)
+                if (root / rel).is_file() and not (root / rel).is_symlink()
+            ),
+            root,
+            config,
+            spec=spec,
+            override=override,
+        )
+        allowed = {path.relative_to(root).as_posix() for path in narrowed.files}
+        findings = tuple(
+            indexed for indexed in findings if indexed.finding.path in allowed
+        )
+        stats.scanned = narrowed.stats.scanned
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
-    if args.quiet and args.blame:
-        print("--quiet and --blame cannot be used together.", file=sys.stderr)
-    if args.quiet and args.age:
-        print("--quiet and --age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.min_age is not None:
-        print("--quiet and --min-age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.max_age is not None:
-        print("--quiet and --max-age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.author is not None:
-        print("--quiet and --author cannot be used together.", file=sys.stderr)
-    if args.quiet and args.check_secrets:
-        print("--quiet and --check-secrets cannot be used together.", file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
-    sort_by_age = args.sort == "age"
+    # Age order is a text-report concern. Other formats keep scan order and
+    # must not pay for blame just because --sort age was passed.
+    sort_by_age = args.sort == "age" and args.format == "text"
     author_filtering = args.author is not None
     do_history = (
         args.blame or args.age or age_filtering or sort_by_age or author_filtering
-    ) and not args.quiet
+    )
     if do_history:
         option = (
             "--blame"
@@ -596,34 +765,57 @@ def main(
     if do_history:
         blames = {}
         paths = sorted({indexed.finding.path for indexed in findings})
+        untracked = untracked_paths(root, paths)
+        finding_lines: dict[str, set[int]] = {}
+        for indexed in findings:
+            finding_lines.setdefault(indexed.finding.path, set()).add(
+                indexed.finding.history_line
+            )
+        for rel_path in paths:
+            if rel_path in untracked:
+                blames[rel_path] = {line: UNTRACKED for line in finding_lines[rel_path]}
+        targets = [rel_path for rel_path in paths if rel_path not in untracked]
         blame_started = time.monotonic()
-        for index, rel_path in enumerate(paths):
-            elapsed = time.monotonic() - blame_started
-            remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
-            if remaining <= 0:
-                blame_budget_exceeded = True
-                break
-            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
-            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
-            try:
-                blames[rel_path] = blame_for_file(
-                    root / rel_path,
-                    repo_root=root,
-                    timeout=timeout,
-                )
-            except BlameTimeoutError:
-                if budget_limited:
+        if len(targets) <= 1:
+            for index, rel_path in enumerate(targets):
+                elapsed = time.monotonic() - blame_started
+                remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
+                if remaining <= 0:
                     blame_budget_exceeded = True
                     break
-            except BlameError:
-                pass
-            if (
-                index < len(paths) - 1
-                and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
-            ):
-                blame_budget_exceeded = True
-                break
+                timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+                budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
+                try:
+                    blames[rel_path] = blame_for_file(
+                        root / rel_path,
+                        repo_root=root,
+                        timeout=timeout,
+                        lines=sorted(finding_lines[rel_path]),
+                    )
+                except BlameTimeoutError:
+                    if budget_limited:
+                        blame_budget_exceeded = True
+                        break
+                except BlameError:
+                    pass
+                if (
+                    index < len(targets) - 1
+                    and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
+                ):
+                    blame_budget_exceeded = True
+                    break
+        else:
+            blame_budget_exceeded = _blame_paths(
+                root, targets, finding_lines, blames, blame_started
+            )
         blame_missing = len(paths) - len(blames)
+        if blame_budget_exceeded and (age_filtering or author_filtering):
+            print(
+                "Warning: blame stopped early because it hit its time budget. "
+                "Age and author filters omit findings whose history was not "
+                "collected.",
+                file=sys.stderr,
+            )
 
     removed_by_age = 0
     if age_filtering and blames is not None:
@@ -655,10 +847,13 @@ def main(
     if args.diff:
         state_file = state_path(root)
         state = load_state(state_file)
-        current_keys = finding_keys(baseline_findings)
+        identities = finding_identities(baseline_findings)
+        current_keys = tuple(sorted(identities.values()))
         new_keys, removed_keys = diff_sets(previous_keys(state, root), current_keys)
         diff_new = tuple(
-            indexed for indexed in baseline_findings if finding_key(indexed) in new_keys
+            indexed
+            for indexed in baseline_findings
+            if identities[indexed.id] in new_keys
         )
         diff_removed = tuple(sorted(removed_keys))
         store_project(state, root, current_keys)
@@ -683,13 +878,24 @@ def main(
             secrets_found_line = secrets_skip_line(secret_findings)
         else:
             items = build_ai_items(findings)
-            ai_payload_chars = payload_characters(items)
             limit = effective_limit(config)
-            if ai_payload_chars > limit and oversized_item(items, limit) is not None:
+            ai_payload_chars = payload_characters(items)
+            kept = [item for item in items if oversized_item([item], limit) is None]
+            dropped = len(items) - len(kept)
+            if dropped:
+                print(
+                    f"Warning: {dropped} comment(s) exceed the AI payload limit "
+                    "and were not sent.",
+                    file=sys.stderr,
+                )
+            if not kept:
                 eligibility = AiEligibility(
                     reason=AiSkipReason.PAYLOAD_TOO_LARGE,
                     payload_characters=ai_payload_chars,
                 )
+            else:
+                items = kept
+                ai_payload_chars = payload_characters(items)
 
     ai_result = None
     ai_failure_line: str | None = None
@@ -724,7 +930,7 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
-    if args.sort == "priority" and ai_result is None:
+    if args.format == "text" and args.sort == "priority" and ai_result is None:
         print(
             "Error: --sort priority requires a completed AI analysis.",
             file=sys.stderr,
@@ -812,6 +1018,7 @@ def main(
             diff_removed=len(diff_removed),
             sort=args.sort,
             group_by=args.group_by,
+            sort_blames=blames if sort_by_age else None,
         )
 
     if args.format == "json":

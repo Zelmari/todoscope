@@ -43,6 +43,41 @@ def test_staged_files_fails_without_repo(tmp_path) -> None:
         staged_files(tmp_path)
 
 
+def test_staged_reads_index_when_worktree_differs(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").write_text("print('clean')\n", encoding="utf-8")
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "b.py:1: TODO: staged" in captured.out
+    assert "clean" not in captured.out
+
+
+def test_staged_ignores_todo_that_is_not_in_the_index(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("print(1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").write_text("# TODO: only worktree\nprint(1)\n", encoding="utf-8")
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "only worktree" not in captured.out
+    assert "TODO" not in captured.out
+
+
+def test_staged_scans_blob_missing_from_worktree(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").unlink()
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "b.py:1: TODO: staged" in captured.out
+
+
 def test_cli_staged_scans_only_staged_files(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
     (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")
@@ -94,8 +129,39 @@ def test_install_hook_writes_executable_script(tmp_path, monkeypatch, capsys) ->
     assert os.access(hook, os.X_OK)
     content = hook.read_text(encoding="utf-8")
     assert HOOK_MARKER in content
-    assert "exec todoscope . --staged --quiet --fail" in content
+    assert "--staged --quiet --fail" in content
+    assert content.startswith("#!/bin/sh\n")
     assert "Installed pre-commit hook" in captured.out
+
+
+def test_install_hook_refuses_foreign_hook(tmp_path, monkeypatch, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text("#!/bin/sh\necho custom\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    result = main(["--install-hook"])
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "refusing to overwrite" in captured.err
+    assert hook.read_text(encoding="utf-8") == "#!/bin/sh\necho custom\n"
+
+
+def test_install_hook_uses_core_hooks_path(tmp_path, monkeypatch, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    custom = tmp_path / "custom-hooks"
+    custom.mkdir()
+    subprocess.run(
+        ["git", "config", "core.hooksPath", str(custom)], cwd=repo, check=True
+    )
+    monkeypatch.chdir(repo)
+    result = main(["--install-hook"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert (custom / "pre-commit").exists()
+    assert HOOK_MARKER in (custom / "pre-commit").read_text(encoding="utf-8")
+    assert not (repo / ".git" / "hooks" / "pre-commit").exists()
+    assert str(custom / "pre-commit") in captured.out
 
 
 def test_install_hook_is_idempotent(tmp_path, monkeypatch, capsys) -> None:

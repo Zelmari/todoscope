@@ -39,15 +39,32 @@ def project_key(project_root: Path) -> str:
     return digest.hexdigest()
 
 
-def finding_key(indexed: IndexedFinding) -> str:
-    """Stable identity of one finding, independent of its scan ID."""
-    finding = indexed.finding
-    return f"{finding.path}:{finding.line}:{finding.marker}:{finding.text}"
+def finding_identities(findings: tuple[IndexedFinding, ...]) -> dict[int, str]:
+    """Map each finding id to an identity that survives a line shift.
+
+    The key is path, marker, text, and the occurrence of that triple in
+    path-then-line order. Inserting a line above a comment keeps the same
+    identity. Two identical comments in one file stay distinct.
+    """
+    ordered = sorted(
+        findings,
+        key=lambda indexed: (indexed.finding.path, indexed.finding.line, indexed.id),
+    )
+    counts: dict[tuple[str, str, str], int] = {}
+    identities: dict[int, str] = {}
+    for indexed in ordered:
+        finding = indexed.finding
+        base = (finding.path, finding.marker, finding.text)
+        counts[base] = counts.get(base, 0) + 1
+        identities[indexed.id] = "\x1f".join(
+            (finding.path, finding.marker, finding.text, str(counts[base]))
+        )
+    return identities
 
 
 def finding_keys(findings: tuple[IndexedFinding, ...]) -> tuple[str, ...]:
     """Sorted finding identities; order-independent and deterministic."""
-    return tuple(sorted(finding_key(f) for f in findings))
+    return tuple(sorted(finding_identities(findings).values()))
 
 
 def diff_sets(

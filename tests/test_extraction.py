@@ -69,6 +69,17 @@ def test_markers_inside_strings_are_ignored() -> None:
     assert result[0].line == 1
 
 
+def test_jsx_file_ignores_text_and_attributes(tmp_path) -> None:
+    path = tmp_path / "view.jsx"
+    path.write_text(
+        'const el = <span title="// TODO: attr">text // TODO: jsx text</span>\n'
+        "{/* TODO: jsx block */}\n",
+        encoding="utf-8",
+    )
+    result = findings_for_file(path, tmp_path, TODO)
+    assert [finding.text for finding in result] == ["jsx block"]
+
+
 def test_js_strings_and_templates_ignored() -> None:
     source = (
         "// TODO: real\n"
@@ -165,6 +176,16 @@ def test_block_comment_lines_are_combined() -> None:
             1,
         )
     ]
+
+
+def test_block_marker_line_follows_the_token() -> None:
+    source = "/*\n * TODO: later\n */\n"
+    result = findings(source, Language.JAVASCRIPT)
+    assert result[0].line == 1
+    assert result[0].marker_line == 2
+    assert result[0].end_line == 3
+    assert result[0].history_line == 2
+    assert result[0].span_end == 3
 
 
 def test_single_line_block_comment() -> None:

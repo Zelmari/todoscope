@@ -48,6 +48,17 @@ def test_c_preprocessor_lines_and_chars(tmp_path) -> None:
     assert [(f.text, f.line) for f in findings] == [("real line", 1), ("real block", 4)]
 
 
+def test_cpp_header_raw_strings(tmp_path) -> None:
+    source = (
+        "// TODO: real line\n"
+        'R"(// TODO: not a comment)"\n'
+        'R"delim(/* TODO: also not a comment */)delim"\n'
+        "/* TODO: real block */\n"
+    )
+    findings = check(tmp_path, "widget.h", source)
+    assert [(f.text, f.line) for f in findings] == [("real line", 1), ("real block", 4)]
+
+
 def test_cpp_raw_strings(tmp_path) -> None:
     source = (
         "// TODO: real line\n"

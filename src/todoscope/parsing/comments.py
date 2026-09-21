@@ -11,37 +11,23 @@ Strategy (MS-2 decision, revised MS-17-fix):
   (tree-sitter-javascript, -typescript, -rust, -java, -go, -c, -cpp,
   -c-sharp). Grammars are bundled inside the wheels, so no runtime download
   ever happens (the language-pack alternative fetched binaries from GitHub
-  at first use, which broke CI and offline scans).
+  at first use, which broke CI and offline scans). Each grammar is imported
+  the first time a file of that language is parsed, and one parser is reused
+  for the rest of the process.
 """
 
 from __future__ import annotations
 
+import importlib
 import io
+import threading
 import tokenize as pytokenize
 from dataclasses import dataclass
 from enum import Enum
+from functools import cache
 from typing import Literal
 
 import tree_sitter
-import tree_sitter_bash as _bash
-import tree_sitter_c as _c
-import tree_sitter_c_sharp as _c_sharp
-import tree_sitter_cpp as _cpp
-import tree_sitter_dart as _dart
-import tree_sitter_elixir as _elixir
-import tree_sitter_go as _go
-import tree_sitter_java as _java
-import tree_sitter_javascript as _javascript
-import tree_sitter_kotlin as _kotlin
-import tree_sitter_lua as _lua
-import tree_sitter_php as _php
-import tree_sitter_ruby as _ruby
-import tree_sitter_rust as _rust
-import tree_sitter_scala as _scala
-import tree_sitter_sql as _sql
-import tree_sitter_swift as _swift
-import tree_sitter_typescript as _typescript
-import tree_sitter_zig as _zig
 
 CommentKind = Literal["line", "block"]
 
@@ -90,33 +76,58 @@ _TREE_SITTER_COMMENT_TYPES = (
     "doc_comment",
 )
 
-_LANGUAGE_FACTORIES = {
-    Language.JAVASCRIPT: _javascript.language,
-    Language.TYPESCRIPT: _typescript.language_typescript,
-    Language.TSX: _typescript.language_tsx,
-    Language.RUST: _rust.language,
-    Language.JAVA: _java.language,
-    Language.GO: _go.language,
-    Language.C: _c.language,
-    Language.CPP: _cpp.language,
-    Language.CSHARP: _c_sharp.language,
-    Language.PHP: _php.language_php,
-    Language.RUBY: _ruby.language,
-    Language.KOTLIN: _kotlin.language,
-    Language.SWIFT: _swift.language,
-    Language.SHELL: _bash.language,
-    Language.SQL: _sql.language,
-    Language.LUA: _lua.language,
-    Language.ZIG: _zig.language,
-    Language.DART: _dart.language,
-    Language.SCALA: _scala.language,
-    Language.ELIXIR: _elixir.language,
+# (module, attribute that returns the raw grammar pointer)
+_GRAMMARS: dict[Language, tuple[str, str]] = {
+    Language.JAVASCRIPT: ("tree_sitter_javascript", "language"),
+    Language.TYPESCRIPT: ("tree_sitter_typescript", "language_typescript"),
+    Language.TSX: ("tree_sitter_typescript", "language_tsx"),
+    Language.RUST: ("tree_sitter_rust", "language"),
+    Language.JAVA: ("tree_sitter_java", "language"),
+    Language.GO: ("tree_sitter_go", "language"),
+    Language.C: ("tree_sitter_c", "language"),
+    Language.CPP: ("tree_sitter_cpp", "language"),
+    Language.CSHARP: ("tree_sitter_c_sharp", "language"),
+    Language.PHP: ("tree_sitter_php", "language_php"),
+    Language.RUBY: ("tree_sitter_ruby", "language"),
+    Language.KOTLIN: ("tree_sitter_kotlin", "language"),
+    Language.SWIFT: ("tree_sitter_swift", "language"),
+    Language.SHELL: ("tree_sitter_bash", "language"),
+    Language.SQL: ("tree_sitter_sql", "language"),
+    Language.LUA: ("tree_sitter_lua", "language"),
+    Language.ZIG: ("tree_sitter_zig", "language"),
+    Language.DART: ("tree_sitter_dart", "language"),
+    Language.SCALA: ("tree_sitter_scala", "language"),
+    Language.ELIXIR: ("tree_sitter_elixir", "language"),
 }
 
+_PARSE_LOCK = threading.Lock()
 
+
+@cache
+def _grammar(language: Language) -> tree_sitter.Language:
+    module_name, attr = _GRAMMARS[language]
+    module = importlib.import_module(module_name)
+    return tree_sitter.Language(getattr(module, attr)())
+
+
+@cache
 def _parser_for(language: Language) -> tree_sitter.Parser:
-    grammar = tree_sitter.Language(_LANGUAGE_FACTORIES[language]())
-    return tree_sitter.Parser(grammar)
+    return tree_sitter.Parser(_grammar(language))
+
+
+@cache
+def _comment_query(language: Language) -> tree_sitter.Query | None:
+    """Compiled query for the comment node types this grammar actually has."""
+    grammar = _grammar(language)
+    names = [
+        name
+        for name in _TREE_SITTER_COMMENT_TYPES
+        if grammar.id_for_node_kind(name, True) is not None
+    ]
+    if not names:
+        return None
+    source = "\n".join(f"({name}) @comment" for name in names)
+    return tree_sitter.Query(grammar, source)
 
 
 def _decode(node_text: bytes) -> str:
@@ -149,34 +160,59 @@ def _strip_trailing_newline(text: str) -> str:
     return text.rstrip("\r\n")
 
 
-def extract_tree_sitter_comments(source: str, language: Language) -> list[Comment]:
+def _outermost(nodes: list[tree_sitter.Node]) -> list[tree_sitter.Node]:
+    """Drop comment nodes nested inside another captured comment.
+
+    Rust doc comments are a ``line_comment`` that contains a ``doc_comment``.
+    Keeping both would report the same text twice.
+    """
+    ordered = sorted(
+        nodes,
+        key=lambda node: (node.start_byte, -(node.end_byte - node.start_byte)),
+    )
+    kept: list[tree_sitter.Node] = []
+    for node in ordered:
+        if any(
+            earlier.start_byte <= node.start_byte and node.end_byte <= earlier.end_byte
+            for earlier in kept
+        ):
+            continue
+        kept.append(node)
+    kept.sort(key=lambda node: node.start_byte)
+    return kept
+
+
+def _comment_from_node(node: tree_sitter.Node) -> Comment:
+    text = _strip_trailing_newline(_decode(node.text or b""))
+    is_block = text.startswith("/*") or text.startswith("--[")
+    return Comment(
+        kind="block" if is_block else "line",
+        text=text,
+        start_line=node.start_point.row + 1,
+        end_line=node.end_point.row + 1,
+    )
+
+
+def extract_tree_sitter_comments(
+    source: str, language: Language, data: bytes | None = None
+) -> list[Comment]:
     """Extract real comments from non-Python source using Tree-sitter."""
+    raw = data if data is not None else source.encode("utf-8")
     parser = _parser_for(language)
-    tree = parser.parse(source.encode("utf-8"))
-
-    comments: list[Comment] = []
-    stack: list = [tree.root_node]
-    while stack:
-        node = stack.pop()
-        if node.type in _TREE_SITTER_COMMENT_TYPES:
-            text = _decode(node.text)
-            text = _strip_trailing_newline(text)
-            is_block = text.startswith("/*") or text.startswith("--[")
-            comments.append(
-                Comment(
-                    kind="block" if is_block else "line",
-                    text=text,
-                    start_line=node.start_point.row + 1,
-                    end_line=node.end_point.row + 1,
-                )
-            )
-        else:
-            stack.extend(reversed(node.children))
-    return comments
+    with _PARSE_LOCK:
+        tree = parser.parse(raw)
+    query = _comment_query(language)
+    if query is None:
+        return []
+    captured = tree_sitter.QueryCursor(query).captures(tree.root_node)
+    nodes = captured.get("comment", [])
+    return [_comment_from_node(node) for node in _outermost(nodes)]
 
 
-def extract_comments(source: str, language: Language) -> list[Comment]:
+def extract_comments(
+    source: str, language: Language, data: bytes | None = None
+) -> list[Comment]:
     """Extract all real comments from ``source`` for the given language."""
     if language is Language.PYTHON:
         return extract_python_comments(source)
-    return extract_tree_sitter_comments(source, language)
+    return extract_tree_sitter_comments(source, language, data)

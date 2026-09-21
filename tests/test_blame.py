@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import date
+import time
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -41,6 +42,24 @@ def test_parse_porcelain_groups_and_boundary() -> None:
     assert result[1].committed_date == "2025-06-15"
     assert result[2].author == "Alice"
     assert result[3].uncommitted is True
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs POSIX tzset")
+def test_parse_porcelain_dates_follow_local_calendar(monkeypatch, request) -> None:
+    request.addfinalizer(time.tzset)
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    stamp = int(datetime(2025, 1, 15, 0, 30, tzinfo=UTC).timestamp())
+    text = (
+        "abc123def4567890abcdef0123456789abcdef01 1 1 1\n"
+        "author Alice\n"
+        f"author-time {stamp}\n"
+        f"committer-time {stamp}\n"
+        "\tline\n"
+    )
+    result = parse_porcelain(text)
+    assert result[1].date == "2025-01-14"
+    assert result[1].committed_date == "2025-01-14"
 
 
 def test_parse_porcelain_empty() -> None:
@@ -139,6 +158,65 @@ def _make_repo(tmp_path):
         "# TODO: old\n# TODO: new uncommitted\nprint(1)\n", encoding="utf-8"
     )
     return repo
+
+
+def test_blame_limits_to_requested_lines(tmp_path, monkeypatch) -> None:
+    repo = _make_repo(tmp_path)
+    commands: list[list[str]] = []
+    real_run = subprocess.run
+
+    def spy(cmd, **kwargs):
+        if isinstance(cmd, list) and "blame" in cmd:
+            commands.append(cmd)
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr("todoscope.blame.subprocess.run", spy)
+    result = blame_for_file(repo / "a.py", lines=[2])
+    assert 1 not in result
+    assert result[2].uncommitted is True
+    assert any(
+        command[index] == "-L" and command[index + 1] == "2,2"
+        for command in commands
+        for index in range(len(command) - 1)
+    )
+
+
+def test_blame_uses_the_repository_that_contains_the_file(
+    tmp_path, monkeypatch
+) -> None:
+    parent = tmp_path / "parent"
+    nested = parent / "nested"
+    nested.mkdir(parents=True)
+    target = nested / "a.py"
+    target.write_text("# TODO: x\n")
+    seen: list[tuple[list[str], object]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((list(cmd), kwargs.get("cwd")))
+
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if list(cmd)[1:2] == ["-C"]:
+            Completed.stdout = f"{nested}\n"
+            return Completed()
+        Completed.stdout = (
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 1 1\n"
+            "author Nested\n"
+            "author-mail <n@example.com>\n"
+            "author-time 1750000000\n"
+            "committer-time 1750000000\n"
+            "\t# TODO: x\n"
+        )
+        return Completed()
+
+    monkeypatch.setattr("todoscope.blame.subprocess.run", fake_run)
+    result = blame_for_file(target, repo_root=parent, lines=[1])
+    blame_dirs = [cwd for cmd, cwd in seen if "blame" in cmd]
+    assert blame_dirs == [nested]
+    assert result[1].author == "Nested"
 
 
 def test_blame_integration_with_real_repo(tmp_path) -> None:
@@ -262,20 +340,22 @@ def test_cli_age_requires_git_repo(tmp_path, capsys) -> None:
 
 def test_quiet_blame_conflict(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
-    result = main([str(repo), "--quiet", "--blame"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--quiet", "--blame"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --blame cannot be used together." in captured.err
-    assert "Authored by" not in captured.out
+    assert captured.out == ""
 
 
 def test_quiet_age_conflict(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
-    result = main([str(repo), "--quiet", "--age"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--quiet", "--age"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --age cannot be used together." in captured.err
-    assert "Age:" not in captured.out
+    assert captured.out == ""
 
 
 def test_blame_data_never_enters_ai_payload(tmp_path, monkeypatch, capsys) -> None:
@@ -356,7 +436,7 @@ def test_blame_call_timeout_is_limited_by_remaining_budget(
     monkeypatch.setattr("todoscope.cli.time.monotonic", lambda: next(times))
     timeouts: list[float] = []
 
-    def record_timeout(path, *, timeout, repo_root):
+    def record_timeout(path, *, timeout, repo_root, lines=None):
         timeouts.append(timeout)
         return {}
 
@@ -375,7 +455,7 @@ def test_budget_limited_timeout_is_reported_for_final_file(
     monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 10.0)
     monkeypatch.setattr("todoscope.cli.time.monotonic", lambda: next(times))
 
-    def timeout(path, *, timeout, repo_root):
+    def timeout(path, *, timeout, repo_root, lines=None):
         raise BlameTimeoutError("budget exhausted")
 
     monkeypatch.setattr("todoscope.cli.blame_for_file", timeout)
@@ -385,6 +465,30 @@ def test_budget_limited_timeout_is_reported_for_final_file(
     assert "Files with blame: 0" in captured.err
     assert "Blame unavailable: 1" in captured.err
     assert "Blame budget exceeded: yes" in captured.err
+
+
+def test_age_filter_warns_when_the_blame_budget_drops_files(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    repo = _make_repo(tmp_path)
+    monkeypatch.setattr("todoscope.cli.BLAME_TOTAL_BUDGET_SECONDS", 0.0)
+    result = main([str(repo), "--max-age", "1"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "hit its time budget" in captured.err
+
+
+def test_several_files_are_blamed_together(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("# TODO: other\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "second"], cwd=repo, check=True)
+    result = main([str(repo), "--blame"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "TODO: old" in captured.out
+    assert "TODO: other" in captured.out
+    assert captured.out.count("Authored by Alice") == 2
 
 
 def test_zero_paths_do_not_report_budget_exhaustion(
@@ -476,7 +580,9 @@ def test_cli_author_filter_conflicts_with_quiet(tmp_path, capsys) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    result = main([str(repo), "--author", "Alice", "--quiet"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--author", "Alice", "--quiet"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --author cannot be used together." in captured.err
+    assert captured.out == ""
