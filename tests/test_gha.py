@@ -55,6 +55,18 @@ def test_escaping_follows_workflow_command_spec() -> None:
     assert "%25x" in line
 
 
+def test_property_delimiters_in_paths_are_escaped() -> None:
+    findings = (
+        IndexedFinding(
+            id=1,
+            finding=Finding("TODO", "note", "src/a,title=other.py", 1),
+        ),
+    )
+    line = gha_report(findings)
+    assert "file=src/a%2Ctitle=other.py," in line
+    assert "title=TODO::" in line
+
+
 def test_output_is_deterministic() -> None:
     assert gha_report(indexed()) == gha_report(indexed())
 

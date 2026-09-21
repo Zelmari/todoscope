@@ -24,6 +24,11 @@ def _escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
+def _escape_property(value: str) -> str:
+    """Escape workflow-command property delimiters as well as message bytes."""
+    return _escape(value).replace(":", "%3A").replace(",", "%2C")
+
+
 def gha_report(
     findings: tuple[IndexedFinding, ...],
     ai_result: AnalysisResult | None = None,
@@ -43,8 +48,8 @@ def gha_report(
             f"{finding.marker}: {finding.text}" if finding.text else finding.marker
         )
         lines.append(
-            f"::{command} file={_escape(finding.path)},line={finding.line},"
-            f"endLine={finding.line},title={_escape(finding.marker)}::"
+            f"::{command} file={_escape_property(finding.path)},line={finding.line},"
+            f"endLine={finding.line},title={_escape_property(finding.marker)}::"
             f"{_escape(message)}"
         )
     return "\n".join(lines)
