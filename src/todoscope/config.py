@@ -21,7 +21,7 @@ DEFAULT_EXTENSIONS: tuple[str, ...] = (".py", ".js", ".jsx", ".ts", ".tsx", ".rs
 EXTENSION_LANGUAGES: dict[str, Language] = {
     ".py": Language.PYTHON,
     ".js": Language.JAVASCRIPT,
-    ".jsx": Language.JAVASCRIPT,
+    ".jsx": Language.TSX,
     ".ts": Language.TYPESCRIPT,
     ".tsx": Language.TSX,
     ".rs": Language.RUST,

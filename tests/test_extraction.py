@@ -69,6 +69,17 @@ def test_markers_inside_strings_are_ignored() -> None:
     assert result[0].line == 1
 
 
+def test_jsx_file_ignores_text_and_attributes(tmp_path) -> None:
+    path = tmp_path / "view.jsx"
+    path.write_text(
+        'const el = <span title="// TODO: attr">text // TODO: jsx text</span>\n'
+        "{/* TODO: jsx block */}\n",
+        encoding="utf-8",
+    )
+    result = findings_for_file(path, tmp_path, TODO)
+    assert [finding.text for finding in result] == ["jsx block"]
+
+
 def test_js_strings_and_templates_ignored() -> None:
     source = (
         "// TODO: real\n"
