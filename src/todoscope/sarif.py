@@ -51,7 +51,7 @@ def _properties(
     if item is not None:
         props["priority"] = item.priority
     if blames is not None:
-        info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+        info = blames.get(indexed.finding.path, {}).get(indexed.finding.history_line)
         if info is not None and not info.uncommitted:
             props["blame"] = {
                 "author": info.author,
@@ -59,7 +59,7 @@ def _properties(
                 "commit": info.commit,
             }
     if ages is not None:
-        info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
+        info = ages.get(indexed.finding.path, {}).get(indexed.finding.history_line)
         props["age"] = age_entry(info)
     return props
 
@@ -96,7 +96,10 @@ def sarif_report(
                     {
                         "physicalLocation": {
                             "artifactLocation": {"uri": finding.path},
-                            "region": {"startLine": finding.line},
+                            "region": {
+                                "startLine": finding.line,
+                                "endLine": finding.span_end,
+                            },
                         }
                     }
                 ],
@@ -127,7 +130,10 @@ def sarif_report(
                         {
                             "physicalLocation": {
                                 "artifactLocation": {"uri": finding.path},
-                                "region": {"startLine": finding.line},
+                                "region": {
+                                    "startLine": finding.line,
+                                    "endLine": finding.span_end,
+                                },
                             }
                         }
                     ],

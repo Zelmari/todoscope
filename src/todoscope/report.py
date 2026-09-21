@@ -154,7 +154,7 @@ def order_findings(
 
         def age_key(f: IndexedFinding) -> tuple[bool, int, str, int]:
             info = (
-                blames.get(f.finding.path, {}).get(f.finding.line)
+                blames.get(f.finding.path, {}).get(f.finding.history_line)
                 if blames is not None
                 else None
             )
@@ -246,10 +246,10 @@ def _finding_block(
     block = [_finding_line(indexed)]
     if blames is not None:
         file_blames = blames.get(indexed.finding.path, {})
-        block.append(blame_detail_line(file_blames.get(indexed.finding.line)))
+        block.append(blame_detail_line(file_blames.get(indexed.finding.history_line)))
     if ages is not None:
         file_ages = ages.get(indexed.finding.path, {})
-        block.append(age_detail_line(file_ages.get(indexed.finding.line)))
+        block.append(age_detail_line(file_ages.get(indexed.finding.history_line)))
     item = ai_by_id.get(indexed.id)
     if item is not None:
         block.append(_ai_detail_line(item))
@@ -392,7 +392,9 @@ def json_report(
             "line": indexed.finding.line,
         }
         if blames is not None:
-            info = blames.get(indexed.finding.path, {}).get(indexed.finding.line)
+            info = blames.get(indexed.finding.path, {}).get(
+                indexed.finding.history_line
+            )
             entry["blame"] = (
                 {
                     "author": info.author,
@@ -403,7 +405,7 @@ def json_report(
                 else None
             )
         if ages is not None:
-            info = ages.get(indexed.finding.path, {}).get(indexed.finding.line)
+            info = ages.get(indexed.finding.path, {}).get(indexed.finding.history_line)
             entry["age"] = age_entry(info)
         return entry
 

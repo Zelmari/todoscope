@@ -49,7 +49,7 @@ def gha_report(
         message = f"{finding.marker}: {body}" if body else finding.marker
         lines.append(
             f"::{command} file={_escape_property(finding.path)},line={finding.line},"
-            f"endLine={finding.line},title={_escape_property(finding.marker)}::"
+            f"endLine={finding.span_end},title={_escape_property(finding.marker)}::"
             f"{_escape(message)}"
         )
     return "\n".join(lines)
