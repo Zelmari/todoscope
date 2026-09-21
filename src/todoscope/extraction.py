@@ -9,7 +9,7 @@ are combined into single findings.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from todoscope.config import language_for_suffix
@@ -25,6 +25,10 @@ _LUA_BLOCK_CLOSE = re.compile(r"\]=*\]$")
 
 IGNORE_DIRECTIVE = "@ignore"
 
+_CPP_IN_HEADER = re.compile(
+    r"\b(?:constexpr|nullptr|namespace|template|co_await|concept)\b|R\""
+)
+
 
 def suppressed_by_directive(text: str) -> bool:
     """True when the comment text carries a standalone ``@ignore`` token.
@@ -37,12 +41,31 @@ def suppressed_by_directive(text: str) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class Finding:
-    """One maintenance comment finding."""
+    """One maintenance comment finding.
+
+    ``line`` is the first line of the comment, which is what text reports
+    show. ``marker_line`` is the line that contains the marker token, used
+    for blame and age. ``end_line`` is the last line of the comment, used by
+    SARIF and GitHub Actions. Both extra fields are excluded from equality so
+    existing comparisons of marker, text, path, and start line stay stable.
+    """
 
     marker: str
     text: str
     path: str
     line: int
+    end_line: int = field(default=0, compare=False)
+    marker_line: int = field(default=0, compare=False)
+
+    @property
+    def history_line(self) -> int:
+        """Line blame and age should attribute. Falls back to ``line``."""
+        return self.marker_line or self.line
+
+    @property
+    def span_end(self) -> int:
+        """Last line of the comment. Falls back to ``line``."""
+        return self.end_line or self.line
 
 
 def marker_prefix(normalised: str, markers: tuple[str, ...]) -> str | None:
@@ -105,6 +128,51 @@ def normalise_block_comment(raw: str) -> str:
     return " ".join(lines)
 
 
+def _decorated_line(line: str) -> str:
+    """One block-comment line with leading ``*`` decoration removed."""
+    stripped = line.strip()
+    star_count = len(stripped) - len(stripped.lstrip("*"))
+    if not star_count:
+        return stripped
+    remainder = stripped[star_count:]
+    if remainder[:1].isspace():
+        return remainder.lstrip()
+    return stripped[1:].lstrip()
+
+
+def block_marker_line(raw: str, start_line: int, marker: str) -> int:
+    """Source line of ``marker`` inside a block comment.
+
+    The finding is still displayed on the comment's first line. Blame has to
+    follow the marker, which may sit below the opening delimiter.
+    """
+    body = raw
+    if body.startswith("--["):
+        body = _LUA_BLOCK_OPEN.sub("", body, count=1)
+        body = _LUA_BLOCK_CLOSE.sub("", body)
+    elif body.startswith("/*"):
+        body = body[2:]
+        if body.endswith("*/"):
+            body = body[:-2]
+    lines = body.splitlines() or [""]
+    for offset, line in enumerate(lines):
+        if _decorated_line(line).startswith(marker):
+            return start_line + offset
+    return start_line
+
+
+def language_for_source(path: Path, source: str) -> Language | None:
+    """Parser for ``path``. ``.h`` files that look like C++ use the C++ grammar."""
+    language = language_for_suffix(path.suffix)
+    if (
+        language is Language.C
+        and path.suffix.casefold() == ".h"
+        and _CPP_IN_HEADER.search(source)
+    ):
+        return Language.CPP
+    return language
+
+
 def findings_for_comments(
     comments: list[Comment],
     language: Language,
@@ -132,6 +200,8 @@ def findings_for_comments(
                     text=" ".join(open_parts),
                     path=rel_path,
                     line=open_line,
+                    end_line=open_end_line,
+                    marker_line=open_line,
                 )
             )
         open_marker = None
@@ -151,6 +221,10 @@ def findings_for_comments(
                         text=strip_marker(text, marker),
                         path=rel_path,
                         line=comment.start_line,
+                        end_line=comment.end_line,
+                        marker_line=block_marker_line(
+                            comment.text, comment.start_line, marker
+                        ),
                     )
                 )
             continue
@@ -182,13 +256,18 @@ def findings_for_source(
     path: Path,
     project_root: Path,
     markers: tuple[str, ...],
+    data: bytes | None = None,
 ) -> list[Finding]:
-    """Return findings for already-loaded source text."""
-    language = language_for_suffix(path.suffix)
+    """Return findings for already-loaded source text.
+
+    ``data`` is the original file bytes when the caller already read them.
+    Tree-sitter parses those bytes directly instead of encoding ``source`` again.
+    """
+    language = language_for_source(path, source)
     if language is None:
         return []
     rel_path = path.relative_to(project_root).as_posix()
-    comments = extract_comments(source, language)
+    comments = extract_comments(source, language, data)
     return findings_for_comments(comments, language, markers, rel_path)
 
 
@@ -197,7 +276,8 @@ def findings_for_file(
 ) -> list[Finding]:
     """Read one source file and return its findings in source order."""
     try:
-        source = path.read_text(encoding="utf-8", errors="replace")
+        data = path.read_bytes()
     except OSError:
         return []
-    return findings_for_source(source, path, project_root, markers)
+    source = data.decode("utf-8", errors="replace")
+    return findings_for_source(source, path, project_root, markers, data)

@@ -178,6 +178,16 @@ def test_block_comment_lines_are_combined() -> None:
     ]
 
 
+def test_block_marker_line_follows_the_token() -> None:
+    source = "/*\n * TODO: later\n */\n"
+    result = findings(source, Language.JAVASCRIPT)
+    assert result[0].line == 1
+    assert result[0].marker_line == 2
+    assert result[0].end_line == 3
+    assert result[0].history_line == 2
+    assert result[0].span_end == 3
+
+
 def test_single_line_block_comment() -> None:
     result = findings("/* TODO: fix me */\n", Language.JAVASCRIPT)
     assert result == [Finding("TODO", "fix me", "file.ext", 1)]
