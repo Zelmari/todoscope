@@ -150,6 +150,32 @@ def _matching_include_keys(
     return frozenset(keys)
 
 
+def _ignored_compiled(
+    chain: tuple[IgnoreSource, ...], path: Path, is_dir: bool
+) -> bool | None:
+    """Last-match gitignore result via pathspec's compiled backend.
+
+    Returns None when that backend cannot be used, so the caller falls back
+    to the pattern walk. A child spec that matches nothing must not clear a
+    parent ignore, which is why the match index (not the boolean) matters.
+    """
+    try:
+        from pathspec.util import normalize_file
+    except ImportError:
+        return None
+    ignored = False
+    try:
+        for source in chain:
+            rel = path.relative_to(source.base).as_posix()
+            probe = rel + "/" if is_dir else rel
+            include, index = source.spec._backend.match_file(normalize_file(probe))
+            if index is not None:
+                ignored = bool(include)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return ignored
+
+
 def _is_ignored(
     chain: tuple[IgnoreSource, ...],
     path: Path,
@@ -157,6 +183,10 @@ def _is_ignored(
     override: Override | None,
 ) -> bool:
     """Git algorithm: deeper sources override; last match within a source wins."""
+    if override is None or not override.gitignore_keys:
+        compiled = _ignored_compiled(chain, path, is_dir)
+        if compiled is not None:
+            return compiled
     ignored = False
     for source in chain:
         rel = path.relative_to(source.base).as_posix()
