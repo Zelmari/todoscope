@@ -16,6 +16,7 @@ from todoscope.blame import BlameInfo
 from todoscope.config import Config
 from todoscope.report import SecretEntries, age_entry
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -84,9 +85,8 @@ def sarif_report(
             if item is not None
             else DEFAULT_LEVEL
         )
-        message = (
-            f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-        )
+        body = redact_secrets(finding.text)
+        message = f"{finding.marker}: {body}" if body else finding.marker
         results.append(
             {
                 "ruleId": finding.marker,
@@ -116,9 +116,8 @@ def sarif_report(
         )
         for indexed, matched in secret_entries:
             finding = indexed.finding
-            message = (
-                f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-            )
+            body = redact_secrets(finding.text)
+            message = f"{finding.marker}: {body}" if body else finding.marker
             results.append(
                 {
                     "ruleId": SECRET_RULE_ID,

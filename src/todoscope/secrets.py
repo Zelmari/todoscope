@@ -84,6 +84,30 @@ def secret_matches(text: str) -> tuple[str, ...]:
     return tuple(name for name, pattern in _RULES if pattern.search(text))
 
 
+def redact_secrets(text: str) -> str:
+    """Replace credential-shaped spans with ``[redacted]``."""
+    spans: list[tuple[int, int]] = []
+    for _name, pattern in _RULES:
+        spans.extend(match.span() for match in pattern.finditer(text))
+    if not spans:
+        return text
+    spans.sort()
+    merged: list[list[int]] = []
+    for start, end in spans:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in merged:
+        pieces.append(text[cursor:start])
+        pieces.append("[redacted]")
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def findings_with_secrets(
     findings: tuple[IndexedFinding, ...],
 ) -> tuple[IndexedFinding, ...]:
@@ -97,8 +121,9 @@ def secret_entries(
     findings: tuple[IndexedFinding, ...],
 ) -> tuple[tuple[IndexedFinding, tuple[str, ...]], ...]:
     """Pairs of finding and matching rule names, in finding order."""
-    return tuple(
-        (indexed, secret_matches(indexed.finding.text))
-        for indexed in findings
-        if secret_matches(indexed.finding.text)
-    )
+    rows: list[tuple[IndexedFinding, tuple[str, ...]]] = []
+    for indexed in findings:
+        matched = secret_matches(indexed.finding.text)
+        if matched:
+            rows.append((indexed, matched))
+    return tuple(rows)

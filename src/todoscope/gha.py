@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from todoscope.ai import AnalysisResult
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 _PRIORITY_COMMANDS: dict[str, str] = {
     "High": "error",
@@ -44,9 +45,8 @@ def gha_report(
             if item is not None
             else DEFAULT_COMMAND
         )
-        message = (
-            f"{finding.marker}: {finding.text}" if finding.text else finding.marker
-        )
+        body = redact_secrets(finding.text)
+        message = f"{finding.marker}: {body}" if body else finding.marker
         lines.append(
             f"::{command} file={_escape_property(finding.path)},line={finding.line},"
             f"endLine={finding.line},title={_escape_property(finding.marker)}::"

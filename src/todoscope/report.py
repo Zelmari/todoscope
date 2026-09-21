@@ -12,6 +12,7 @@ from todoscope.blame import BlameInfo, age_days
 from todoscope.config import Config
 from todoscope.discovery import ScanStats
 from todoscope.scan import IndexedFinding
+from todoscope.secrets import redact_secrets
 
 AI_SKIPPED_NO_KEY = "AI analysis skipped: no API key was configured."
 AI_SKIPPED_NO_MODEL = "AI analysis skipped: no model was configured."
@@ -386,7 +387,7 @@ def json_report(
         entry: dict[str, Any] = {
             "id": indexed.id,
             "marker": indexed.finding.marker,
-            "text": indexed.finding.text,
+            "text": redact_secrets(indexed.finding.text),
             "path": indexed.finding.path,
             "line": indexed.finding.line,
         }
@@ -446,7 +447,7 @@ def _secret_json(entries: SecretEntries) -> list[dict[str, Any]]:
         {
             "id": indexed.id,
             "marker": indexed.finding.marker,
-            "text": indexed.finding.text,
+            "text": redact_secrets(indexed.finding.text),
             "path": indexed.finding.path,
             "line": indexed.finding.line,
             "rules": list(rules),
@@ -464,7 +465,7 @@ def _diff_json(
             {
                 "id": indexed.id,
                 "marker": indexed.finding.marker,
-                "text": indexed.finding.text,
+                "text": redact_secrets(indexed.finding.text),
                 "path": indexed.finding.path,
                 "line": indexed.finding.line,
             }
