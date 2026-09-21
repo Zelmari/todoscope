@@ -259,6 +259,7 @@ def test_explicit_symlink_directory_never_scans_outside_project(
     assert "TODO: outside" not in captured.out
     assert "No TODO comments were found." in captured.out
     assert "Symlinks skipped: 1" in captured.err
+    assert "contains a symlink" in captured.err
 
 
 def test_explicit_ignored_target_interactive_confirm(

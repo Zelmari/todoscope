@@ -576,6 +576,12 @@ def main(
             print(f"Error: {option} failed: {exc}", file=sys.stderr)
             return 2
 
+    if symlink_target:
+        print(
+            f"Skipped '{args.path}': the path contains a symlink.",
+            file=sys.stderr,
+        )
+
     started = time.perf_counter()
     try:
         if args.staged:
@@ -601,6 +607,24 @@ def main(
             )
             discovered.stats.serial_retry_chunks = retried
             stats = discovered.stats
+        elif changed_set is not None and not args.diff:
+            assert changed_set is not None
+            selected = _paths_under_target(changed_set, target, root)
+            present = tuple(
+                rel
+                for rel in selected
+                if (root / rel).is_file() and not (root / rel).is_symlink()
+            )
+            discovered = filter_explicit_paths(
+                present,
+                root,
+                config,
+                spec=spec,
+                override=override,
+            )
+            findings, retried = scan_files(discovered.files, root, config)
+            discovered.stats.serial_retry_chunks = retried
+            stats = discovered.stats
         else:
             findings, stats = scan(
                 target,
@@ -608,7 +632,6 @@ def main(
                 config,
                 spec=spec,
                 override=override,
-                changed=changed_set,
             )
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -623,7 +646,7 @@ def main(
     )
     stats.ignored_by_directive = len(all_findings) - len(findings)
     baseline_findings = findings
-    if args.diff and (args.staged or changed_set is not None):
+    if args.diff and args.staged:
         full_findings, _full_stats = scan(
             target,
             root,
@@ -636,6 +659,24 @@ def main(
             for indexed in full_findings
             if not suppressed_by_directive(indexed.finding.text)
         )
+    elif args.diff and changed_set is not None:
+        baseline_findings = findings
+        narrowed = filter_explicit_paths(
+            tuple(
+                rel
+                for rel in _paths_under_target(changed_set, target, root)
+                if (root / rel).is_file() and not (root / rel).is_symlink()
+            ),
+            root,
+            config,
+            spec=spec,
+            override=override,
+        )
+        allowed = {path.relative_to(root).as_posix() for path in narrowed.files}
+        findings = tuple(
+            indexed for indexed in findings if indexed.finding.path in allowed
+        )
+        stats.scanned = narrowed.stats.scanned
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
