@@ -262,20 +262,22 @@ def test_cli_age_requires_git_repo(tmp_path, capsys) -> None:
 
 def test_quiet_blame_conflict(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
-    result = main([str(repo), "--quiet", "--blame"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--quiet", "--blame"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --blame cannot be used together." in captured.err
-    assert "Authored by" not in captured.out
+    assert captured.out == ""
 
 
 def test_quiet_age_conflict(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
-    result = main([str(repo), "--quiet", "--age"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--quiet", "--age"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --age cannot be used together." in captured.err
-    assert "Age:" not in captured.out
+    assert captured.out == ""
 
 
 def test_blame_data_never_enters_ai_payload(tmp_path, monkeypatch, capsys) -> None:
@@ -476,7 +478,9 @@ def test_cli_author_filter_conflicts_with_quiet(tmp_path, capsys) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    result = main([str(repo), "--author", "Alice", "--quiet"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(repo), "--author", "Alice", "--quiet"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --author cannot be used together." in captured.err
+    assert captured.out == ""

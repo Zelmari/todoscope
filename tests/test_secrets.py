@@ -162,11 +162,12 @@ def test_check_secrets_without_flag_shows_nothing(tmp_path, capsys) -> None:
 
 def test_check_secrets_quiet_conflict(tmp_path, capsys) -> None:
     _write_clean_project(tmp_path)
-    result = main([str(tmp_path / "src"), "--quiet", "--check-secrets"])
+    with pytest.raises(SystemExit) as exc:
+        main([str(tmp_path / "src"), "--quiet", "--check-secrets"])
     captured = capsys.readouterr()
-    assert result == 0
+    assert exc.value.code == 2
     assert "--quiet and --check-secrets cannot be used together." in captured.err
-    assert "Possible credentials" not in captured.out
+    assert captured.out == ""
 
 
 def test_check_secrets_json_shape(tmp_path, capsys) -> None:

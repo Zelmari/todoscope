@@ -440,6 +440,18 @@ def main(
         parser.error("--stats and --quiet cannot be used together.")
     if args.quiet and args.group_by != "none":
         parser.error("--group-by cannot be used with --quiet.")
+    if args.quiet and args.blame:
+        parser.error("--quiet and --blame cannot be used together.")
+    if args.quiet and args.age:
+        parser.error("--quiet and --age cannot be used together.")
+    if args.quiet and args.min_age is not None:
+        parser.error("--quiet and --min-age cannot be used together.")
+    if args.quiet and args.max_age is not None:
+        parser.error("--quiet and --max-age cannot be used together.")
+    if args.quiet and args.author is not None:
+        parser.error("--quiet and --author cannot be used together.")
+    if args.quiet and args.check_secrets:
+        parser.error("--quiet and --check-secrets cannot be used together.")
 
     for option, value in (("--min-age", args.min_age), ("--max-age", args.max_age)):
         if value is not None and value < 0:
@@ -550,18 +562,6 @@ def main(
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
-    if args.quiet and args.blame:
-        print("--quiet and --blame cannot be used together.", file=sys.stderr)
-    if args.quiet and args.age:
-        print("--quiet and --age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.min_age is not None:
-        print("--quiet and --min-age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.max_age is not None:
-        print("--quiet and --max-age cannot be used together.", file=sys.stderr)
-    if args.quiet and args.author is not None:
-        print("--quiet and --author cannot be used together.", file=sys.stderr)
-    if args.quiet and args.check_secrets:
-        print("--quiet and --check-secrets cannot be used together.", file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
     sort_by_age = args.sort == "age"
