@@ -6,6 +6,7 @@ import argparse
 import json
 import multiprocessing
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -312,34 +313,39 @@ def _prompt_secondary() -> bool:
 
 
 HOOK_MARKER = "# installed by todoscope"
-HOOK_SCRIPT = f"""#!/bin/sh
-{HOOK_MARKER}
-exec todoscope . --staged --quiet --fail
-"""
+
+
+def _hook_script() -> str:
+    """Hook body. The executable path is absolute so GUI git can find it."""
+    executable = shutil.which("todoscope") or "todoscope"
+    return (
+        "#!/bin/sh\n"
+        f"{HOOK_MARKER}\n"
+        f"exec {shlex.quote(executable)} . --staged --quiet --fail\n"
+    )
 
 
 def _hook_path(root: Path) -> Path | None:
-    git_dir = root / ".git"
-    if git_dir.is_dir():
-        return git_dir / "hooks" / "pre-commit"
-    if git_dir.is_file():
-        try:
-            completed = subprocess.run(
-                ["git", "rev-parse", "--git-path", "hooks"],
-                cwd=root,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=5.0,
-            )
-            if completed.returncode == 0 and completed.stdout.strip():
-                hooks_dir = Path(completed.stdout.strip())
-                if not hooks_dir.is_absolute():
-                    hooks_dir = root / hooks_dir
-                return hooks_dir / "pre-commit"
-        except (OSError, subprocess.SubprocessError):
-            pass
-    return None
+    """Pre-commit path, including ``core.hooksPath`` and linked worktrees."""
+    if not (root / ".git").exists():
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    hooks_dir = Path(completed.stdout.strip())
+    if not hooks_dir.is_absolute():
+        hooks_dir = root / hooks_dir
+    return hooks_dir / "pre-commit"
 
 
 def _install_hook(root: Path) -> int:
@@ -350,9 +356,22 @@ def _install_hook(root: Path) -> int:
             file=sys.stderr,
         )
         return 2
+    if hook.exists():
+        try:
+            existing = hook.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"Error: cannot read {hook}: {exc}", file=sys.stderr)
+            return 1
+        if HOOK_MARKER not in existing:
+            print(
+                f"Error: {hook} already exists and was not installed by "
+                "todoscope; refusing to overwrite it.",
+                file=sys.stderr,
+            )
+            return 2
     try:
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(HOOK_SCRIPT, encoding="utf-8")
+        hook.write_text(_hook_script(), encoding="utf-8")
         hook.chmod(0o755)
     except OSError as exc:
         print(f"Error: could not write the pre-commit hook: {exc}", file=sys.stderr)
