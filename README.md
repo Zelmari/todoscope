@@ -121,9 +121,11 @@ deletions are skipped.
 `New since last scan` section in text mode (with the number of findings
 that disappeared), the new findings' lines only in `--quiet` mode, and a
 `diff` object in JSON. The baseline lives in the user cache directory
-keyed by project root, always covers the complete scan (age filters and
-`--changed` do not affect it), and is best-effort — a missing or corrupt
-baseline simply reports everything as new.
+keyed by project root, always covers the complete scan (age filters,
+`--changed`, and `--staged` do not affect it), and is best-effort — a
+missing or corrupt baseline simply reports everything as new. A finding's
+identity is its path, marker, text, and occurrence in that file, so
+inserting a line above a comment does not mark it as new.
 
 ### Ignoring findings
 

@@ -46,8 +46,7 @@ from todoscope.config import (
 )
 from todoscope.diffstate import (
     diff_sets,
-    finding_key,
-    finding_keys,
+    finding_identities,
     load_state,
     previous_keys,
     prune_state,
@@ -605,6 +604,19 @@ def main(
     )
     stats.ignored_by_directive = len(all_findings) - len(findings)
     baseline_findings = findings
+    if args.diff and (args.staged or changed_set is not None):
+        full_findings, _full_stats = scan(
+            target,
+            root,
+            config,
+            spec=spec,
+            override=override,
+        )
+        baseline_findings = tuple(
+            indexed
+            for indexed in full_findings
+            if not suppressed_by_directive(indexed.finding.text)
+        )
 
     if args.quiet and args.ai:
         print(QUIET_AI_CONFLICT, file=sys.stderr)
@@ -712,10 +724,13 @@ def main(
     if args.diff:
         state_file = state_path(root)
         state = load_state(state_file)
-        current_keys = finding_keys(baseline_findings)
+        identities = finding_identities(baseline_findings)
+        current_keys = tuple(sorted(identities.values()))
         new_keys, removed_keys = diff_sets(previous_keys(state, root), current_keys)
         diff_new = tuple(
-            indexed for indexed in baseline_findings if finding_key(indexed) in new_keys
+            indexed
+            for indexed in baseline_findings
+            if identities[indexed.id] in new_keys
         )
         diff_removed = tuple(sorted(removed_keys))
         store_project(state, root, current_keys)

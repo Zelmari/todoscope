@@ -124,6 +124,18 @@ def test_cli_changed_json_reports_ref(tmp_path, capsys) -> None:
     assert data["findings"][0]["path"] == "b.py"
 
 
+def test_changed_diff_keeps_the_full_baseline(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    main([str(repo), "--diff"])
+    capsys.readouterr()
+    main([str(repo), "--changed", "HEAD", "--diff"])
+    capsys.readouterr()
+    result = main([str(repo), "--diff"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No new findings." in captured.out
+
+
 def test_cli_changed_composes_with_age(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
     result = main([str(repo), "--changed", "HEAD~1", "--age"])
