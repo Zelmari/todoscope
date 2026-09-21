@@ -59,11 +59,11 @@ def test_property_delimiters_in_paths_are_escaped() -> None:
     findings = (
         IndexedFinding(
             id=1,
-            finding=Finding("TODO", "note", "src/a,title=other.py", 1),
+            finding=Finding("TODO", "note", "src/a,b:c.py", 1),
         ),
     )
     line = gha_report(findings)
-    assert "file=src/a%2Ctitle=other.py," in line
+    assert "file=src/a%2Cb%3Ac.py," in line
     assert "title=TODO::" in line
 
 
