@@ -430,6 +430,43 @@ def test_chunked_analysis_merges_by_id_and_uses_first_overview(monkeypatch) -> N
     assert outcome.result.overview == "Overview of [1]."
 
 
+def test_partial_chunk_cache_is_not_reported_as_cached(monkeypatch) -> None:
+    items = [
+        {"id": 1, "marker": "TODO", "text": "a" * 80},
+        {"id": 2, "marker": "TODO", "text": "b" * 80},
+    ]
+    first = items[0]
+    key = item_key(first["marker"], first["text"], "m")
+    cache = {
+        "items": {key: {"interpretation": "kept", "priority": "Low", "ts": 1.0}},
+        "runs": {run_key((key,)): {"overview": "cached overview", "ts": 1.0}},
+    }
+    calls: list[list[int]] = []
+
+    def fake(batch, model, key_info, **kwargs):
+        calls.append([item["id"] for item in batch])
+        return AiOutcome(
+            AiOutcomeKind.SUCCESS,
+            AnalysisResult(
+                items=tuple(
+                    AnalysisItem(id=item["id"], interpretation="net", priority="High")
+                    for item in batch
+                ),
+                overview="network",
+            ),
+        )
+
+    monkeypatch.setattr("todoscope.openai_client.run_ai_analysis", fake)
+    outcome, used = run_chunked_analysis(
+        items, "m", keys(), cache=cache, max_chars=100, interactive=False
+    )
+    assert used is False
+    assert calls == [[2]]
+    assert outcome.result is not None
+    assert outcome.result.items[0].interpretation == "kept"
+    assert outcome.result.items[1].interpretation == "net"
+
+
 def test_chunked_analysis_fails_whole_outcome_on_chunk_failure(monkeypatch) -> None:
     def failing(items, model, keys, **kwargs):
         if any(item["id"] == 2 for item in items):

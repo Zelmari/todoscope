@@ -129,10 +129,12 @@ def prune_cache(data: dict[str, Any], *, now: float | None = None) -> None:
 
 
 def save_cache(path: Path, data: dict[str, Any]) -> bool:
-    """Write the cache; failures are reported, never fatal."""
+    """Write the cache atomically; failures are reported, never fatal."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(temporary, path)
         return True
     except OSError:
         return False
@@ -147,6 +149,7 @@ def run_cached_analysis(
     interactive: bool,
     confirm_secondary: ConfirmSecondaryFn | None = None,
     status: StatusFactory | None = None,
+    lock: threading.Lock | None = None,
 ) -> tuple[AiOutcome, bool]:
     """Run AI analysis, using and updating ``cache`` when available.
 
@@ -166,43 +169,46 @@ def run_cached_analysis(
         )
         return outcome, False
 
-    store = cache.setdefault("items", {})
-    runs = cache.setdefault("runs", {})
-    item_keys = {
-        item["id"]: item_key(item["marker"], item["text"], model) for item in items
-    }
-    cached: dict[int, dict[str, Any]] = {}
-    missing: list[dict[str, Any]] = []
-    for item in items:
-        entry = store.get(item_keys[item["id"]])
-        if (
-            isinstance(entry, dict)
-            and entry.get("interpretation")
-            and entry.get("priority")
-        ):
-            cached[item["id"]] = entry
-        else:
-            missing.append(item)
+    guard = lock if lock is not None else nullcontext()
+    with guard:
+        store = cache.setdefault("items", {})
+        runs = cache.setdefault("runs", {})
+        item_keys = {
+            item["id"]: item_key(item["marker"], item["text"], model) for item in items
+        }
+        cached: dict[int, dict[str, Any]] = {}
+        missing: list[dict[str, Any]] = []
+        for item in items:
+            entry = store.get(item_keys[item["id"]])
+            if (
+                isinstance(entry, dict)
+                and entry.get("interpretation")
+                and entry.get("priority")
+            ):
+                cached[item["id"]] = entry
+            else:
+                missing.append(item)
 
-    overview_key = run_key(tuple(item_keys.values()))
-    if not missing and isinstance(runs.get(overview_key), dict):
-        overview = runs[overview_key].get("overview")
-        if isinstance(overview, str):
-            merged = AnalysisResult(
-                items=tuple(
-                    AnalysisItem(
-                        id=item_id,
-                        interpretation=cached[item_id]["interpretation"],
-                        priority=cached[item_id]["priority"],
-                    )
-                    for item_id in item_keys
-                ),
-                overview=overview,
-            )
-            return AiOutcome(AiOutcomeKind.SUCCESS, merged), True
+        overview_key = run_key(tuple(item_keys.values()))
+        if not missing and isinstance(runs.get(overview_key), dict):
+            overview = runs[overview_key].get("overview")
+            if isinstance(overview, str):
+                merged = AnalysisResult(
+                    items=tuple(
+                        AnalysisItem(
+                            id=item_id,
+                            interpretation=cached[item_id]["interpretation"],
+                            priority=cached[item_id]["priority"],
+                        )
+                        for item_id in item_keys
+                    ),
+                    overview=overview,
+                )
+                return AiOutcome(AiOutcomeKind.SUCCESS, merged), True
+        pending = list(missing)
 
     outcome = run_ai_analysis(
-        missing if missing else items,
+        pending if pending else items,
         model,
         keys,
         interactive=interactive,
@@ -210,29 +216,30 @@ def run_cached_analysis(
         status=status,
     )
     if outcome.kind is AiOutcomeKind.SUCCESS and outcome.result is not None:
-        stamp = time.time()
-        for item in outcome.result.items:
-            store[item_keys[item.id]] = {
-                "interpretation": item.interpretation,
-                "priority": item.priority,
-                "ts": stamp,
-            }
-        runs[overview_key] = {"overview": outcome.result.overview, "ts": stamp}
-        if missing:
-            fresh = {item.id: item for item in outcome.result.items}
-            merged = AnalysisResult(
-                items=tuple(
-                    fresh.get(item_id)
-                    or AnalysisItem(
-                        id=item_id,
-                        interpretation=cached[item_id]["interpretation"],
-                        priority=cached[item_id]["priority"],
-                    )
-                    for item_id in item_keys
-                ),
-                overview=outcome.result.overview,
-            )
-            return AiOutcome(AiOutcomeKind.SUCCESS, merged), False
+        with guard:
+            stamp = time.time()
+            for item in outcome.result.items:
+                store[item_keys[item.id]] = {
+                    "interpretation": item.interpretation,
+                    "priority": item.priority,
+                    "ts": stamp,
+                }
+            runs[overview_key] = {"overview": outcome.result.overview, "ts": stamp}
+            if pending:
+                fresh = {item.id: item for item in outcome.result.items}
+                merged = AnalysisResult(
+                    items=tuple(
+                        fresh.get(item_id)
+                        or AnalysisItem(
+                            id=item_id,
+                            interpretation=cached[item_id]["interpretation"],
+                            priority=cached[item_id]["priority"],
+                        )
+                        for item_id in item_keys
+                    ),
+                    overview=outcome.result.overview,
+                )
+                return AiOutcome(AiOutcomeKind.SUCCESS, merged), False
     return outcome, False
 
 
@@ -298,7 +305,7 @@ def _run_chunks_sequential(
     """One request at a time, preserving the secondary-key flow."""
     merged: list[AnalysisItem] = []
     overview: str | None = None
-    used_cache = False
+    used_cache = True
     for chunk in chunks:
         outcome, chunk_cached = run_cached_analysis(
             chunk,
@@ -311,7 +318,7 @@ def _run_chunks_sequential(
         )
         if outcome.kind is not AiOutcomeKind.SUCCESS or outcome.result is None:
             return outcome, False
-        used_cache = used_cache or chunk_cached
+        used_cache = used_cache and chunk_cached
         if overview is None:
             overview = outcome.result.overview
         merged.extend(outcome.result.items)
@@ -353,6 +360,7 @@ def _run_chunks_parallel(
             interactive=interactive,
             confirm_secondary=None,
             status=None,
+            lock=lock,
         )
         with lock:
             if failure is None and outcome.kind is not AiOutcomeKind.SUCCESS:
@@ -373,12 +381,12 @@ def _run_chunks_parallel(
 
     merged: list[AnalysisItem] = []
     overview: str | None = None
-    used_cache = False
+    used_cache = True
     for entry in results:
         assert entry is not None
         outcome, chunk_cached = entry
         assert outcome.result is not None
-        used_cache = used_cache or chunk_cached
+        used_cache = used_cache and chunk_cached
         if overview is None:
             overview = outcome.result.overview
         merged.extend(outcome.result.items)
