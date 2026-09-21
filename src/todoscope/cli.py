@@ -377,6 +377,8 @@ def _hook_path(root: Path) -> Path | None:
             cwd=root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             check=False,
             timeout=5.0,
         )

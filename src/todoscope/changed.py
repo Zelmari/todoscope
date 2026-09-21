@@ -102,6 +102,8 @@ def _verify_ref(project_root: Path, ref: str, *, git: str, timeout: float) -> No
             cwd=project_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=timeout,
             check=False,
         )
@@ -123,6 +125,8 @@ def _diff_names(
             cwd=project_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=timeout,
             check=False,
         )

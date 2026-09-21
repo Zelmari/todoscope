@@ -149,6 +149,8 @@ def _git_toplevel(directory: str, git: str) -> str:
             [git, "-C", directory, "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=BLAME_TIMEOUT_SECONDS,
             check=False,
         )
@@ -217,6 +219,8 @@ def blame_for_file(
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=timeout,
             check=False,
         )
@@ -247,6 +251,8 @@ def untracked_paths(repo_root: Path, paths: list[str], *, git: str = "git") -> s
             cwd=repo_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=BLAME_TIMEOUT_SECONDS,
             check=False,
         )
