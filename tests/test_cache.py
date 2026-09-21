@@ -456,7 +456,7 @@ def test_partial_chunk_cache_is_not_reported_as_cached(monkeypatch) -> None:
             ),
         )
 
-    monkeypatch.setattr("todoscope.openai_client.run_ai_analysis", fake)
+    monkeypatch.setattr("todoscope.cache.run_ai_analysis", fake)
     outcome, used = run_chunked_analysis(
         items, "m", keys(), cache=cache, max_chars=100, interactive=False
     )
@@ -567,9 +567,11 @@ def test_cli_chunks_large_payloads(tmp_path, monkeypatch, capsys) -> None:
     assert "Overall AI summary" in captured.out
 
 
-def test_cli_single_oversized_comment_still_refuses(
+def test_cli_oversized_comment_is_skipped_and_the_rest_are_sent(
     tmp_path, monkeypatch, capsys
 ) -> None:
+    from todoscope.ai import AnalysisItem, AnalysisResult
+
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text(
         "# TODO: " + "x" * 2000 + "\n# TODO: short\n"
@@ -578,15 +580,26 @@ def test_cli_single_oversized_comment_still_refuses(
         '{"model": "m", "max_ai_characters": 500}'
     )
     monkeypatch.setenv("TODOSCOPE_API_KEY", "sk-x")
+    calls: list = []
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("no AI request may be made")
+    def fake_analyze(items, model, api_key, **kwargs):
+        calls.append(items)
+        return AnalysisResult(
+            items=tuple(
+                AnalysisItem(id=item["id"], interpretation="x", priority="Low")
+                for item in items
+            ),
+            overview="Sent.",
+        )
 
-    monkeypatch.setattr("todoscope.openai_client.analyze", fail_if_called)
+    monkeypatch.setattr("todoscope.openai_client.analyze", fake_analyze)
     result = main([str(tmp_path / "src"), "--ai"])
     captured = capsys.readouterr()
     assert result == 0
-    assert "exceed the maximum AI payload size" in captured.out
+    assert len(calls) == 1
+    assert [item["text"] for item in calls[0]] == ["short"]
+    assert "were not sent" in captured.err
+    assert "exceed the maximum AI payload size" not in captured.out
 
 
 def test_parallel_mode_uses_bounded_threads(monkeypatch) -> None:

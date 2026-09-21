@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from importlib.metadata import version
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from todoscope.ai import (
 from todoscope.blame import (
     BLAME_TIMEOUT_SECONDS,
     BLAME_TOTAL_BUDGET_SECONDS,
+    BLAME_WORKERS,
     UNTRACKED,
     BlameError,
     BlameInfo,
@@ -259,6 +261,45 @@ def build_parser() -> argparse.ArgumentParser:
         help="override scanned extensions (can be specified multiple times)",
     )
     return parser
+
+
+def _blame_paths(
+    root: Path,
+    targets: list[str],
+    finding_lines: dict[str, set[int]],
+    blames: dict[str, dict[int, BlameInfo]],
+    blame_started: float,
+) -> bool:
+    """Blame several files concurrently. True when the time budget ran out."""
+    exceeded = False
+    deadline = blame_started + BLAME_TOTAL_BUDGET_SECONDS
+    futures: dict[Future[dict[int, BlameInfo]], tuple[str, bool]] = {}
+    with ThreadPoolExecutor(max_workers=BLAME_WORKERS) as pool:
+        for rel_path in targets:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                exceeded = True
+                break
+            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
+            future = pool.submit(
+                blame_for_file,
+                root / rel_path,
+                timeout=timeout,
+                repo_root=root,
+                lines=sorted(finding_lines[rel_path]),
+            )
+            futures[future] = (rel_path, budget_limited)
+        for future in as_completed(futures):
+            rel_path, budget_limited = futures[future]
+            try:
+                blames[rel_path] = future.result()
+            except BlameTimeoutError:
+                if budget_limited:
+                    exceeded = True
+            except BlameError:
+                pass
+    return exceeded
 
 
 def _paths_under_target(paths: set[str], target: Path, root: Path) -> tuple[str, ...]:
@@ -616,13 +657,13 @@ def main(
         elif changed_set is not None and not args.diff:
             assert changed_set is not None
             selected = _paths_under_target(changed_set, target, root)
-            present = tuple(
+            changed_present = tuple(
                 rel
                 for rel in selected
                 if (root / rel).is_file() and not (root / rel).is_symlink()
             )
             discovered = filter_explicit_paths(
-                present,
+                changed_present,
                 root,
                 config,
                 spec=spec,
@@ -726,39 +767,53 @@ def main(
         finding_lines: dict[str, set[int]] = {}
         for indexed in findings:
             finding_lines.setdefault(indexed.finding.path, set()).add(
-                indexed.finding.line
+                indexed.finding.history_line
             )
-        blame_started = time.monotonic()
-        for index, rel_path in enumerate(paths):
+        for rel_path in paths:
             if rel_path in untracked:
                 blames[rel_path] = {line: UNTRACKED for line in finding_lines[rel_path]}
-                continue
-            elapsed = time.monotonic() - blame_started
-            remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
-            if remaining <= 0:
-                blame_budget_exceeded = True
-                break
-            timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
-            budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
-            try:
-                blames[rel_path] = blame_for_file(
-                    root / rel_path,
-                    repo_root=root,
-                    timeout=timeout,
-                )
-            except BlameTimeoutError:
-                if budget_limited:
+        targets = [rel_path for rel_path in paths if rel_path not in untracked]
+        blame_started = time.monotonic()
+        if len(targets) <= 1:
+            for index, rel_path in enumerate(targets):
+                elapsed = time.monotonic() - blame_started
+                remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
+                if remaining <= 0:
                     blame_budget_exceeded = True
                     break
-            except BlameError:
-                pass
-            if (
-                index < len(paths) - 1
-                and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
-            ):
-                blame_budget_exceeded = True
-                break
+                timeout = min(BLAME_TIMEOUT_SECONDS, remaining)
+                budget_limited = remaining <= BLAME_TIMEOUT_SECONDS
+                try:
+                    blames[rel_path] = blame_for_file(
+                        root / rel_path,
+                        repo_root=root,
+                        timeout=timeout,
+                        lines=sorted(finding_lines[rel_path]),
+                    )
+                except BlameTimeoutError:
+                    if budget_limited:
+                        blame_budget_exceeded = True
+                        break
+                except BlameError:
+                    pass
+                if (
+                    index < len(targets) - 1
+                    and time.monotonic() - blame_started >= BLAME_TOTAL_BUDGET_SECONDS
+                ):
+                    blame_budget_exceeded = True
+                    break
+        else:
+            blame_budget_exceeded = _blame_paths(
+                root, targets, finding_lines, blames, blame_started
+            )
         blame_missing = len(paths) - len(blames)
+        if blame_budget_exceeded and (age_filtering or author_filtering):
+            print(
+                "Warning: blame stopped early because it hit its time budget. "
+                "Age and author filters omit findings whose history was not "
+                "collected.",
+                file=sys.stderr,
+            )
 
     removed_by_age = 0
     if age_filtering and blames is not None:
@@ -821,13 +876,24 @@ def main(
             secrets_found_line = secrets_skip_line(secret_findings)
         else:
             items = build_ai_items(findings)
-            ai_payload_chars = payload_characters(items)
             limit = effective_limit(config)
-            if ai_payload_chars > limit and oversized_item(items, limit) is not None:
+            ai_payload_chars = payload_characters(items)
+            kept = [item for item in items if oversized_item([item], limit) is None]
+            dropped = len(items) - len(kept)
+            if dropped:
+                print(
+                    f"Warning: {dropped} comment(s) exceed the AI payload limit "
+                    "and were not sent.",
+                    file=sys.stderr,
+                )
+            if not kept:
                 eligibility = AiEligibility(
                     reason=AiSkipReason.PAYLOAD_TOO_LARGE,
                     payload_characters=ai_payload_chars,
                 )
+            else:
+                items = kept
+                ai_payload_chars = payload_characters(items)
 
     ai_result = None
     ai_failure_line: str | None = None
