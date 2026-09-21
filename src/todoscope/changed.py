@@ -28,12 +28,21 @@ def changed_files(
     timeout: float = CHANGED_TIMEOUT_SECONDS,
 ) -> tuple[str, ...]:
     """Repository-root-relative paths of tracked files differing from ``ref``."""
-    try:
-        return _diff_names(
-            project_root, [git, "diff", "--name-only", ref, "--"], timeout
-        )
-    except ChangedError as exc:
-        raise ChangedError(f"unknown ref {ref!r}: {exc}") from exc
+    _verify_ref(project_root, ref, git=git, timeout=timeout)
+    return _diff_names(
+        project_root,
+        [
+            git,
+            "diff",
+            "-z",
+            "--name-only",
+            "--no-renames",
+            "--end-of-options",
+            ref,
+            "--",
+        ],
+        timeout,
+    )
 
 
 def staged_files(
@@ -42,12 +51,67 @@ def staged_files(
     git: str = "git",
     timeout: float = CHANGED_TIMEOUT_SECONDS,
 ) -> tuple[str, ...]:
-    """Repository-root-relative paths of files staged for commit."""
+    """Repository-root-relative paths of files staged for commit.
+
+    Staged deletions are omitted: there is no index blob left to scan.
+    """
     return _diff_names(
         project_root,
-        [git, "diff", "--cached", "--name-only", "--"],
+        [
+            git,
+            "diff",
+            "--cached",
+            "-z",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=ACMR",
+            "--",
+        ],
         timeout,
     )
+
+
+def read_index_blob(
+    project_root: Path,
+    relative: str,
+    *,
+    git: str = "git",
+    timeout: float = CHANGED_TIMEOUT_SECONDS,
+) -> str | None:
+    """UTF-8 text of the staged blob, or None when it cannot be read."""
+    try:
+        completed = subprocess.run(
+            [git, "cat-file", "blob", f":{relative}"],
+            cwd=project_root,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.decode("utf-8", errors="replace")
+
+
+def _verify_ref(project_root: Path, ref: str, *, git: str, timeout: float) -> None:
+    """Fail with an unknown-ref error before git can treat ``ref`` as an option."""
+    try:
+        completed = subprocess.run(
+            [git, "rev-parse", "--verify", "--quiet", "--end-of-options", ref],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ChangedError("git diff timed out") from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise ChangedError("git diff failed to run") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or "not a revision"
+        raise ChangedError(f"unknown ref {ref!r}: {detail}")
 
 
 def _diff_names(
@@ -68,4 +132,4 @@ def _diff_names(
         raise ChangedError("git diff failed to run") from exc
     if completed.returncode != 0:
         raise ChangedError(f"git diff failed: {completed.stderr.strip()}")
-    return tuple(line for line in completed.stdout.splitlines() if line)
+    return tuple(part for part in completed.stdout.split("\0") if part)

@@ -43,6 +43,41 @@ def test_staged_files_fails_without_repo(tmp_path) -> None:
         staged_files(tmp_path)
 
 
+def test_staged_reads_index_when_worktree_differs(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").write_text("print('clean')\n", encoding="utf-8")
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "b.py:1: TODO: staged" in captured.out
+    assert "clean" not in captured.out
+
+
+def test_staged_ignores_todo_that_is_not_in_the_index(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("print(1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").write_text("# TODO: only worktree\nprint(1)\n", encoding="utf-8")
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "only worktree" not in captured.out
+    assert "TODO" not in captured.out
+
+
+def test_staged_scans_blob_missing_from_worktree(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "b.py"], cwd=repo, check=True)
+    (repo / "b.py").unlink()
+    result = main([str(repo), "--staged", "--quiet"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "b.py:1: TODO: staged" in captured.out
+
+
 def test_cli_staged_scans_only_staged_files(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
     (repo / "b.py").write_text("# TODO: staged\n", encoding="utf-8")

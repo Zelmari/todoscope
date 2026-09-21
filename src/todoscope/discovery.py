@@ -254,6 +254,52 @@ def _blocking_source(
     return None
 
 
+def filter_explicit_paths(
+    relative_paths: tuple[str, ...],
+    project_root: Path,
+    config: Config,
+    *,
+    spec: pathspec.PathSpec | None = None,
+    override: Override | None = None,
+) -> DiscoveryResult:
+    """Apply ignore and extension rules to an explicit path list.
+
+    Used for ``--staged`` and ``--changed``, which already know the paths
+    and should not walk the rest of the tree. Paths do not have to exist
+    on disk (a staged blob can outlive its worktree file).
+    """
+    files: list[Path] = []
+    stats = ScanStats()
+    if spec is None:
+        spec = load_gitignore_spec(project_root)
+    spec_cache: dict[Path, pathspec.PathSpec | None] = {}
+    for rel in relative_paths:
+        path = project_root / rel
+        parent = path.parent
+        if not parent.is_relative_to(project_root):
+            parent = project_root
+        chain = _chain_for(project_root, parent, spec, spec_cache)
+        source = _blocking_source(rel, chain, path, False, config, override)
+        if source == GITIGNORE_SOURCE:
+            stats.ignored_by_gitignore += 1
+            continue
+        if source == CONFIG_SOURCE:
+            stats.ignored_by_config += 1
+            continue
+        if path.suffix not in config.extensions:
+            stats.unsupported += 1
+            continue
+        files.append(path)
+    files.sort(
+        key=lambda p: (
+            relative_posix(p, project_root).casefold(),
+            relative_posix(p, project_root),
+        )
+    )
+    stats.scanned = len(files)
+    return DiscoveryResult(files=tuple(files), stats=stats)
+
+
 def discover_files(
     target: Path,
     project_root: Path,

@@ -113,8 +113,9 @@ are not). Ignore and extension rules still apply, and the option composes
 with `--blame`, `--age`, and the age filters. JSON reports include a
 `changed_ref` field. Requires a valid git ref and a Git repository; unknown
 refs fail with exit code 2. `--staged` does the same for files staged for
-commit (JSON reports set `"staged": true`), and cannot be combined with
-`--changed`.
+commit, reading the index blob rather than the working tree (JSON reports
+set `"staged": true`), and cannot be combined with `--changed`. Staged
+deletions are skipped.
 
 `--diff` reports findings added since the last `--diff` scan: a
 `New since last scan` section in text mode (with the number of findings

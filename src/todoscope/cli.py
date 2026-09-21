@@ -36,7 +36,7 @@ from todoscope.blame import (
     untracked_paths,
 )
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
-from todoscope.changed import ChangedError, changed_files, staged_files
+from todoscope.changed import ChangedError, changed_files, read_index_blob, staged_files
 from todoscope.config import (
     Config,
     ConfigError,
@@ -60,6 +60,7 @@ from todoscope.discovery import (
     ConfirmFn,
     build_override,
     check_ignored,
+    filter_explicit_paths,
     load_gitignore_spec,
     target_has_symlink_component,
 )
@@ -91,7 +92,7 @@ from todoscope.report import (
     verbose_report,
 )
 from todoscope.sarif import sarif_report
-from todoscope.scan import IndexedFinding, scan
+from todoscope.scan import IndexedFinding, scan, scan_files
 from todoscope.secrets import findings_with_secrets, secret_entries
 from todoscope.status import StatusContext
 
@@ -257,6 +258,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="override scanned extensions (can be specified multiple times)",
     )
     return parser
+
+
+def _paths_under_target(paths: set[str], target: Path, root: Path) -> tuple[str, ...]:
+    """Keep repository-relative paths that lie inside the requested target."""
+    try:
+        relative = target.relative_to(root).as_posix()
+    except ValueError:
+        return ()
+    if relative in {"", "."}:
+        return tuple(sorted(paths))
+    if target.is_file():
+        return (relative,) if relative in paths else ()
+    return tuple(
+        sorted(
+            path
+            for path in paths
+            if path == relative or path.startswith(relative + "/")
+        )
+    )
 
 
 def _rule_description(source: str) -> str:
@@ -540,14 +560,38 @@ def main(
 
     started = time.perf_counter()
     try:
-        findings, stats = scan(
-            target,
-            root,
-            config,
-            spec=spec,
-            override=override,
-            changed=changed_set,
-        )
+        if args.staged:
+            assert changed_set is not None
+            selected = _paths_under_target(changed_set, target, root)
+            blobs: dict[str, str] = {}
+            present: list[str] = []
+            for rel in selected:
+                text = read_index_blob(root, rel)
+                if text is None:
+                    continue
+                blobs[rel] = text
+                present.append(rel)
+            discovered = filter_explicit_paths(
+                tuple(present),
+                root,
+                config,
+                spec=spec,
+                override=override,
+            )
+            findings, retried = scan_files(
+                discovered.files, root, config, sources=blobs
+            )
+            discovered.stats.serial_retry_chunks = retried
+            stats = discovered.stats
+        else:
+            findings, stats = scan(
+                target,
+                root,
+                config,
+                spec=spec,
+                override=override,
+                changed=changed_set,
+            )
     except ConfigError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 3

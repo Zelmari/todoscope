@@ -177,17 +177,27 @@ def findings_for_comments(
     return findings
 
 
-def findings_for_file(
-    path: Path, project_root: Path, markers: tuple[str, ...]
+def findings_for_source(
+    source: str,
+    path: Path,
+    project_root: Path,
+    markers: tuple[str, ...],
 ) -> list[Finding]:
-    """Read one source file and return its findings in source order."""
+    """Return findings for already-loaded source text."""
     language = EXTENSION_LANGUAGES.get(path.suffix)
     if language is None:
-        return []
-    try:
-        source = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
         return []
     rel_path = path.relative_to(project_root).as_posix()
     comments = extract_comments(source, language)
     return findings_for_comments(comments, language, markers, rel_path)
+
+
+def findings_for_file(
+    path: Path, project_root: Path, markers: tuple[str, ...]
+) -> list[Finding]:
+    """Read one source file and return its findings in source order."""
+    try:
+        source = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return findings_for_source(source, path, project_root, markers)

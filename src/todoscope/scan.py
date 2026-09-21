@@ -28,7 +28,7 @@ from todoscope.discovery import (
     ScanStats,
     discover_files,
 )
-from todoscope.extraction import Finding, findings_for_file
+from todoscope.extraction import Finding, findings_for_file, findings_for_source
 
 PARALLEL_MIN_FILES = 500
 """Pool gate: the first file count at which the pool clearly wins.
@@ -50,13 +50,27 @@ monorepo workload) with at most 2 x workers chunks in flight at once."""
 
 
 def _extract_chunk_worker(
-    paths: list[str], project_root: str, markers: tuple[str, ...]
+    paths: list[str],
+    project_root: str,
+    markers: tuple[str, ...],
+    sources: dict[str, str] | None = None,
 ) -> list[Finding]:
-    """Module-level chunk worker (picklable on every platform)."""
+    """Module-level chunk worker (picklable on every platform).
+
+    ``sources`` maps repository-relative paths to text that replaces a disk
+    read. ``--staged`` passes index blobs here.
+    """
     root = Path(project_root)
     findings: list[Finding] = []
     for path in paths:
-        findings.extend(findings_for_file(Path(path), root, markers))
+        file_path = Path(path)
+        if sources is None:
+            findings.extend(findings_for_file(file_path, root, markers))
+            continue
+        text = sources.get(file_path.relative_to(root).as_posix())
+        if text is None:
+            continue
+        findings.extend(findings_for_source(text, file_path, root, markers))
     return findings
 
 
@@ -67,13 +81,30 @@ def _worker_count() -> int:
 
 
 def _extract_serial(
-    files: tuple[Path, ...], project_root: Path, config: Config
+    files: tuple[Path, ...],
+    project_root: Path,
+    config: Config,
+    sources: dict[str, str] | None = None,
 ) -> list[Finding]:
-    return [
-        finding
-        for path in files
-        for finding in findings_for_file(path, project_root, config.markers)
-    ]
+    return _extract_chunk_worker(
+        [str(path) for path in files],
+        str(project_root),
+        config.markers,
+        sources,
+    )
+
+
+def _chunk_sources(
+    chunk: list[str], project_root: Path, sources: dict[str, str] | None
+) -> dict[str, str] | None:
+    if sources is None:
+        return None
+    selected: dict[str, str] = {}
+    for path in chunk:
+        rel = Path(path).relative_to(project_root).as_posix()
+        if rel in sources:
+            selected[rel] = sources[rel]
+    return selected
 
 
 def _extract_parallel(
@@ -82,6 +113,7 @@ def _extract_parallel(
     config: Config,
     workers: int,
     chunk_size: int,
+    sources: dict[str, str] | None = None,
 ) -> tuple[list[Finding], int]:
     """Windowed pool extraction with per-chunk retry.
 
@@ -116,6 +148,7 @@ def _extract_parallel(
                     chunks[index],
                     str(project_root),
                     config.markers,
+                    _chunk_sources(chunks[index], project_root, sources),
                 )
                 future_to_index[future] = index
                 return future
@@ -144,7 +177,10 @@ def _extract_parallel(
     for index, chunk in enumerate(chunks):
         if results[index] is None:
             results[index] = _extract_chunk_worker(
-                chunk, str(project_root), config.markers
+                chunk,
+                str(project_root),
+                config.markers,
+                _chunk_sources(chunk, project_root, sources),
             )
     return [finding for chunk in results if chunk for finding in chunk], retried
 
@@ -173,6 +209,7 @@ def scan_files(
     max_workers: int | None = None,
     parallel: bool | None = None,
     chunk_size: int = SUBMIT_CHUNK_SIZE,
+    sources: dict[str, str] | None = None,
 ) -> tuple[tuple[IndexedFinding, ...], int]:
     """Extract findings from permitted files, sort them, and assign IDs.
 
@@ -190,12 +227,12 @@ def scan_files(
         workers = max_workers if max_workers is not None else _worker_count()
         try:
             extracted, retried = _extract_parallel(
-                files, project_root, config, workers, chunk_size
+                files, project_root, config, workers, chunk_size, sources
             )
         except BrokenProcessPool:
-            extracted = _extract_serial(files, project_root, config)
+            extracted = _extract_serial(files, project_root, config, sources)
     else:
-        extracted = _extract_serial(files, project_root, config)
+        extracted = _extract_serial(files, project_root, config, sources)
 
     ordered = sort_findings(extracted)
     indexed = tuple(
