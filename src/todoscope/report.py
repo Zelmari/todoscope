@@ -158,7 +158,9 @@ def order_findings(
                 else None
             )
             days = age_days(info)
-            return (days is None, days or 0, f.finding.path.casefold(), f.finding.line)
+            # Unavailable last. Known ages are oldest first (larger day counts).
+            rank = 0 if days is None else -days
+            return (days is None, rank, f.finding.path.casefold(), f.finding.line)
 
         return tuple(sorted(findings, key=age_key))
     if sort == "priority":
@@ -268,6 +270,7 @@ def standard_report(
     diff_removed: int = 0,
     sort: str = "line",
     group_by: str = "none",
+    sort_blames: dict[str, dict[int, BlameInfo]] | None = None,
 ) -> str:
     """Complete human-readable report, printed once (Overarching 17/21)."""
     lines = [scan_header(files_scanned, target, len(findings), config)]
@@ -283,7 +286,12 @@ def standard_report(
 
     lines.append("")
     ai_by_id = {item.id: item for item in ai_result.items} if ai_result else {}
-    ordered = order_findings(findings, sort, blames=blames, ai_by_id=ai_by_id)
+    ordered = order_findings(
+        findings,
+        sort,
+        blames=sort_blames if sort == "age" else blames,
+        ai_by_id=ai_by_id,
+    )
     if group_by == "none":
         lines.append(marker_label(config))
         lines.append("")

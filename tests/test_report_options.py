@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 
+from todoscope.blame import BlameInfo
 from todoscope.cli import main
 from todoscope.extraction import Finding
 from todoscope.report import group_findings, order_findings
@@ -103,11 +104,26 @@ def test_sort_age_orders_oldest_first(tmp_path, capsys) -> None:
     result = main([str(repo), "--sort", "age"])
     captured = capsys.readouterr()
     assert result == 0
-    lines = [
-        line for line in captured.out.splitlines() if line.startswith(("1.", "2."))
-    ]
-    assert lines[0].startswith("1.") or lines[0].startswith("2.")
-    assert captured.out.index("a.py:1") < captured.out.index("a.py:2")
+    # The committed TODO is on line 2; the uncommitted one is on line 1.
+    assert captured.out.index("a.py:2") < captured.out.index("a.py:1")
+
+
+def test_quiet_sort_age_orders_oldest_first(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    result = main([str(repo), "--quiet", "--sort", "age"])
+    captured = capsys.readouterr()
+    assert result == 0
+    lines = [line for line in captured.out.splitlines() if line]
+    assert lines[0].startswith("2. a.py:2:")
+    assert lines[1].startswith("1. a.py:1:")
+
+
+def test_sort_age_is_ignored_for_json(tmp_path, capsys) -> None:
+    (tmp_path / "a.py").write_text("# TODO: x\n", encoding="utf-8")
+    result = main([str(tmp_path), "--sort", "age", "--format", "json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "requires a Git repository" not in captured.err
 
 
 def test_group_by_marker_sections(tmp_path, capsys) -> None:
@@ -150,6 +166,15 @@ def test_json_order_is_unaffected_by_sort(tmp_path, capsys) -> None:
     assert [f["path"] for f in data["findings"]] == ["a.py", "z.py"]
 
 
+def test_order_findings_age_is_oldest_first() -> None:
+    findings = _indexed()[:2]
+    old = BlameInfo("a" * 40, "Ann", "2020-01-01", "2020-01-01")
+    recent = BlameInfo("b" * 40, "Ann", "2024-06-01", "2024-06-01")
+    blames = {"src/z.py": {5: recent}, "a.py": {1: old}}
+    ordered = order_findings(findings, "age", blames=blames)
+    assert [item.finding.path for item in ordered] == ["a.py", "src/z.py"]
+
+
 def test_order_findings_and_groups_are_deterministic() -> None:
     assert order_findings(_indexed(), "line") == _indexed()
     paths = [f.finding.path for f in order_findings(_indexed(), "path")]
@@ -168,7 +193,7 @@ def _make_repo(tmp_path):
         ["git", "config", "user.email", "alice@example.com"], cwd=repo, check=True
     )
     subprocess.run(["git", "config", "user.name", "Alice"], cwd=repo, check=True)
-    (repo / "a.py").write_text("# TODO: old\nprint(1)\n", encoding="utf-8")
+    (repo / "a.py").write_text("print(1)\n# TODO: old\n", encoding="utf-8")
     subprocess.run(["git", "add", "a.py"], cwd=repo, check=True)
     env = {
         "GIT_AUTHOR_DATE": "2025-05-12T10:00:00Z",
@@ -180,7 +205,5 @@ def _make_repo(tmp_path):
         env={**os.environ, **env},
         check=True,
     )
-    (repo / "a.py").write_text(
-        "# TODO: old\n# TODO: uncommitted\nprint(1)\n", encoding="utf-8"
-    )
+    (repo / "a.py").write_text("# TODO: uncommitted\n# TODO: old\n", encoding="utf-8")
     return repo

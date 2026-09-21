@@ -564,11 +564,13 @@ def main(
         print(QUIET_AI_CONFLICT, file=sys.stderr)
 
     age_filtering = args.min_age is not None or args.max_age is not None
-    sort_by_age = args.sort == "age"
+    # Age order is a text-report concern. Other formats keep scan order and
+    # must not pay for blame just because --sort age was passed.
+    sort_by_age = args.sort == "age" and args.format == "text"
     author_filtering = args.author is not None
     do_history = (
         args.blame or args.age or age_filtering or sort_by_age or author_filtering
-    ) and not args.quiet
+    )
     if do_history:
         option = (
             "--blame"
@@ -724,7 +726,7 @@ def main(
         else:
             ai_failure_line = _outcome_skip_line(outcome.kind)
 
-    if args.sort == "priority" and ai_result is None:
+    if args.format == "text" and args.sort == "priority" and ai_result is None:
         print(
             "Error: --sort priority requires a completed AI analysis.",
             file=sys.stderr,
@@ -812,6 +814,7 @@ def main(
             diff_removed=len(diff_removed),
             sort=args.sort,
             group_by=args.group_by,
+            sort_blames=blames if sort_by_age else None,
         )
 
     if args.format == "json":
