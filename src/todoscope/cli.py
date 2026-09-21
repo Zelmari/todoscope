@@ -26,12 +26,14 @@ from todoscope.ai import (
 from todoscope.blame import (
     BLAME_TIMEOUT_SECONDS,
     BLAME_TOTAL_BUDGET_SECONDS,
+    UNTRACKED,
     BlameError,
     BlameInfo,
     BlameTimeoutError,
     blame_for_file,
     filter_by_age,
     filter_by_author,
+    untracked_paths,
 )
 from todoscope.cache import cache_path, load_cache, run_chunked_analysis, save_cache
 from todoscope.changed import ChangedError, changed_files, staged_files
@@ -598,8 +600,17 @@ def main(
     if do_history:
         blames = {}
         paths = sorted({indexed.finding.path for indexed in findings})
+        untracked = untracked_paths(root, paths)
+        finding_lines: dict[str, set[int]] = {}
+        for indexed in findings:
+            finding_lines.setdefault(indexed.finding.path, set()).add(
+                indexed.finding.line
+            )
         blame_started = time.monotonic()
         for index, rel_path in enumerate(paths):
+            if rel_path in untracked:
+                blames[rel_path] = {line: UNTRACKED for line in finding_lines[rel_path]}
+                continue
             elapsed = time.monotonic() - blame_started
             remaining = BLAME_TOTAL_BUDGET_SECONDS - elapsed
             if remaining <= 0:

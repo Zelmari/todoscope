@@ -154,6 +154,35 @@ def blame_for_file(
     return parse_porcelain(completed.stdout)
 
 
+UNTRACKED = BlameInfo(commit="0" * 40, author="", date="", committed_date="")
+"""Stand-in for a line in a file git has never tracked. Age is 0."""
+
+
+def untracked_paths(repo_root: Path, paths: list[str], *, git: str = "git") -> set[str]:
+    """Paths among ``paths`` that are not in the index.
+
+    One ``git ls-files -z`` call. A failure yields an empty set so callers
+    keep the previous "blame unavailable" behaviour.
+    """
+    if not paths:
+        return set()
+    try:
+        completed = subprocess.run(
+            [git, "ls-files", "-z", "--", *paths],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=BLAME_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return set()
+    if completed.returncode != 0:
+        return set()
+    tracked = {line for line in completed.stdout.split("\0") if line}
+    return {path for path in paths if path not in tracked}
+
+
 def age_days(info: BlameInfo | None, *, today: date | None = None) -> int | None:
     """Days since the line was committed; 0 when uncommitted, None if unknown."""
     if info is None or (not info.uncommitted and not info.committed_date):

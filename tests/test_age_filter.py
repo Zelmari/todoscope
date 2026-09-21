@@ -97,6 +97,16 @@ def test_negative_age_is_rejected(tmp_path, capsys) -> None:
     assert "--min-age must be a non-negative number of days" in captured.err
 
 
+def test_cli_max_age_zero_includes_untracked_files(tmp_path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    (repo / "new.py").write_text("# TODO: brand new\n", encoding="utf-8")
+    result = main([str(repo), "--max-age", "0"])
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "new.py:1: TODO: brand new" in captured.out
+    assert "TODO: old" not in captured.out
+
+
 def test_cli_max_age_zero_keeps_only_uncommitted(tmp_path, capsys) -> None:
     repo = _make_repo(tmp_path)
     result = main([str(repo), "--max-age", "0"])
