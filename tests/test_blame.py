@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import date
+import time
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -41,6 +42,24 @@ def test_parse_porcelain_groups_and_boundary() -> None:
     assert result[1].committed_date == "2025-06-15"
     assert result[2].author == "Alice"
     assert result[3].uncommitted is True
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs POSIX tzset")
+def test_parse_porcelain_dates_follow_local_calendar(monkeypatch, request) -> None:
+    request.addfinalizer(time.tzset)
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    stamp = int(datetime(2025, 1, 15, 0, 30, tzinfo=UTC).timestamp())
+    text = (
+        "abc123def4567890abcdef0123456789abcdef01 1 1 1\n"
+        "author Alice\n"
+        f"author-time {stamp}\n"
+        f"committer-time {stamp}\n"
+        "\tline\n"
+    )
+    result = parse_porcelain(text)
+    assert result[1].date == "2025-01-14"
+    assert result[1].committed_date == "2025-01-14"
 
 
 def test_parse_porcelain_empty() -> None:

@@ -51,6 +51,20 @@ class BlameInfo:
         return len(self.commit) in _OBJECT_ID_LENGTHS and set(self.commit) == {"0"}
 
 
+def _local_calendar_date(raw: str) -> str:
+    """Calendar date of a git timestamp in the machine's local timezone.
+
+    Age is compared with ``date.today()``, which is local. Storing the UTC
+    date instead shifts ``--min-age`` and ``--max-age`` by a day around
+    midnight.
+    """
+    try:
+        moment = datetime.fromtimestamp(int(raw), tz=UTC)
+    except (ValueError, OSError, OverflowError):
+        return ""
+    return moment.astimezone().date().isoformat()
+
+
 def parse_porcelain(text: str) -> dict[int, BlameInfo]:
     """Parse ``git blame --porcelain`` output into line -> BlameInfo.
 
@@ -97,17 +111,9 @@ def parse_porcelain(text: str) -> dict[int, BlameInfo]:
             elif key == "author-mail":
                 attrs["author_mail"] = value.strip("<>")
             elif key == "author-time":
-                try:
-                    stamp = datetime.fromtimestamp(int(value), tz=UTC)
-                    attrs["date"] = stamp.strftime("%Y-%m-%d")
-                except (ValueError, OSError):
-                    attrs["date"] = ""
+                attrs["date"] = _local_calendar_date(value)
             elif key == "committer-time":
-                try:
-                    stamp = datetime.fromtimestamp(int(value), tz=UTC)
-                    attrs["committed_date"] = stamp.strftime("%Y-%m-%d")
-                except (ValueError, OSError):
-                    attrs["committed_date"] = ""
+                attrs["committed_date"] = _local_calendar_date(value)
     finish()
     return result
 
